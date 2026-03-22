@@ -1,0 +1,62 @@
+# === Результаты сборки (Build outputs) ===
+build/
+bin/
+lib/
+out/
+.cache/
+
+# === Временные файлы компилятора и линкера ===
+*.obj
+*.o
+*.pdb
+*.exe
+*.dll
+*.so
+*.a
+*.lib
+*.ilk
+*.exp
+
+# === Visual Studio (Windows) ===
+.vs/
+*.sln
+*.vcxproj
+*.vcxproj.filters
+*.vcxproj.user
+*.suo
+*.db
+*.opendb
+# Папка прекомпилированных заголовков и IntelliSense
+ipch/
+*.VC.db
+*.VC.opendb
+
+# === VS Code ===
+.vscode/*
+# Исключение: сохраняем настройки запуска и задачи, если они общие для команды
+!.vscode/launch.json
+!.vscode/tasks.json
+!.vscode/settings.json
+# Игнорируем историю и временные расширения
+.history/
+*.code-workspace
+
+# === CMake ===
+CMakeCache.txt
+CMakeFiles/
+CMakeSettings.json
+cmake_install.cmake
+install_manifest.txt
+compile_commands.json
+
+# === Системные файлы ===
+.DS_Store
+Thumbs.db
+
+# === Логи и временные файлы ===
+*.log
+*.tmp
+
+
+
+Livox-SDK2-1.2.5/
