@@ -74,6 +74,11 @@ namespace gcs::viewer
         unsigned int colorTexture = 0;
         unsigned int depthRenderbuffer = 0;
 
+        unsigned int msFramebuffer = 0; // Multisample FBO
+        unsigned int msColorTexture = 0; // GL_TEXTURE_2D_MULTISAMPLE
+        unsigned int msDepthRenderbuffer = 0; // GL_RENDERBUFFER, multisample
+        unsigned int msColorRenderbuffer = 0;  // GL_RENDERBUFFER, multisample
+
         int framebufferWidth = 0;
         int framebufferHeight = 0;
         std::uint64_t uploadedRevision = 0;

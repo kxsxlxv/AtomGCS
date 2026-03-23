@@ -147,7 +147,8 @@ namespace gcs::viewer
 
         uploadPointCloudIfNeeded(pointCloud);
 
-        glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
+        // Рендер в multisample FBO
+        glBindFramebuffer(GL_FRAMEBUFFER, msFramebuffer);
         glViewport(0, 0, framebufferWidth, framebufferHeight);
         glEnable(GL_DEPTH_TEST);
         glEnable(GL_PROGRAM_POINT_SIZE);
@@ -174,11 +175,21 @@ namespace gcs::viewer
         glDrawArrays(GL_POINTS, 0, static_cast<GLsizei>(uploadedPointCount));
         glBindVertexArray(0);
 
+        // Рендер overlay (линии, кубы)
         if (!overlay.empty())
         {
             overlayRenderer.render(overlay, mvp, camera.getPosition());
         }
 
+        // Resolve multisample → обычный FBO
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, msFramebuffer);
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, framebuffer);
+        glBlitFramebuffer(0, 0, framebufferWidth, framebufferHeight,
+                        0, 0, framebufferWidth, framebufferHeight,
+                        GL_COLOR_BUFFER_BIT, GL_NEAREST);
+        // Depth buffer не копируем — он не нужен для ImGui
+
+        // Восстановление состояния
         glDisable(GL_BLEND);
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
     }
@@ -327,7 +338,65 @@ namespace gcs::viewer
         {
             return true;
         }
-        return rebuildFramebuffer(width, height);
+
+        // Удалить старые объекты (если есть)
+        if (msFramebuffer != 0) glDeleteFramebuffers(1, &msFramebuffer);
+        if (msColorRenderbuffer != 0) glDeleteRenderbuffers(1, &msColorRenderbuffer);
+        if (msDepthRenderbuffer != 0) glDeleteRenderbuffers(1, &msDepthRenderbuffer);
+        if (framebuffer != 0) glDeleteFramebuffers(1, &framebuffer);
+        if (colorTexture != 0) glDeleteTextures(1, &colorTexture);
+        if (depthRenderbuffer != 0) glDeleteRenderbuffers(1, &depthRenderbuffer);
+
+        // Создать multisample FBO (4x MSAA)
+        glGenFramebuffers(1, &msFramebuffer);
+        glBindFramebuffer(GL_FRAMEBUFFER, msFramebuffer);
+
+        // Color buffer (multisample)
+        glGenRenderbuffers(1, &msColorRenderbuffer);
+        glBindRenderbuffer(GL_RENDERBUFFER, msColorRenderbuffer);
+        glRenderbufferStorageMultisample(GL_RENDERBUFFER, 4, GL_RGBA8, width, height);
+        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, msColorRenderbuffer);
+
+        // Depth buffer (multisample)
+        glGenRenderbuffers(1, &msDepthRenderbuffer);
+        glBindRenderbuffer(GL_RENDERBUFFER, msDepthRenderbuffer);
+        glRenderbufferStorageMultisample(GL_RENDERBUFFER, 4, GL_DEPTH_COMPONENT24, width, height);
+        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, msDepthRenderbuffer);
+
+        if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+        {
+            std::cerr << "Multisample FBO incomplete!" << std::endl;
+            return false;
+        }
+
+        // Создать resolve FBO (обычный, для ImGui)
+        glGenFramebuffers(1, &framebuffer);
+        glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
+
+        // Color texture (обычная, для ImGui::Image)
+        glGenTextures(1, &colorTexture);
+        glBindTexture(GL_TEXTURE_2D, colorTexture);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, colorTexture, 0);
+
+        // Depth buffer (не нужен в resolve FBO, только в multisample)
+        glGenRenderbuffers(1, &depthRenderbuffer);
+        glBindRenderbuffer(GL_RENDERBUFFER, depthRenderbuffer);
+        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, width, height);
+        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, depthRenderbuffer);
+
+        if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+        {
+            std::cerr << "Resolve FBO incomplete!" << std::endl;
+            return false;
+        }
+
+        framebufferWidth = width;
+        framebufferHeight = height;
     }
 
     void PointCloudRenderer::uploadPointCloudIfNeeded(const SharedState::PointCloudFrame &pointCloud)
