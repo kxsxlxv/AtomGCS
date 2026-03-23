@@ -29,23 +29,16 @@ namespace gcs::mock
         {
             return protocol::droneStateToString(state);
         }
-
-        std::vector<std::uint8_t> buildPointCloudPayload(std::uint32_t timestampMs)
+        std::vector<protocol::PointCloudPoint> buildPointCloudFrame()
         {
             static thread_local std::mt19937 randomEngine{std::random_device{}()};
-            std::uniform_int_distribution<std::uint32_t> pointCountDistribution(1000, 5000);
+            constexpr std::uint32_t pointCount = 10000;
             std::uniform_real_distribution<float> radiusDistribution(2.0f, 25.0f);
             std::uniform_real_distribution<float> azimuthDistribution(-pi * 0.5f, pi * 0.5f);
             std::uniform_real_distribution<float> elevationDistribution(-pi * 0.35f, pi * 0.35f);
             std::uniform_int_distribution<int> intensityDistribution(20, 255);
 
-            const std::uint32_t pointCount = pointCountDistribution(randomEngine);
-            protocol::PayloadPointCloudHeader header{timestampMs, pointCount};
-
-            std::vector<std::uint8_t> payload(sizeof(header) + static_cast<std::size_t>(pointCount) * sizeof(protocol::PointCloudPoint));
-            std::memcpy(payload.data(), &header, sizeof(header));
-
-            auto *points = reinterpret_cast<protocol::PointCloudPoint *>(payload.data() + sizeof(header));
+            std::vector<protocol::PointCloudPoint> points(pointCount);
             for (std::uint32_t index = 0; index < pointCount; ++index)
             {
                 const float radius = radiusDistribution(randomEngine);
@@ -58,7 +51,7 @@ namespace gcs::mock
                 points[index].intensity = static_cast<std::uint8_t>(intensityDistribution(randomEngine));
             }
 
-            return payload;
+            return points;
         }
     }
 
@@ -68,6 +61,7 @@ namespace gcs::mock
         state.missionParameters.delayedStartTimeSec = 0;
         state.missionParameters.takeoffAltitudeM = 10.0f;
         state.missionParameters.flightSpeedMS = 5.0f;
+        state.missionParameters.numPoints = 0;
     }
 
     MockServer::~MockServer()
@@ -334,10 +328,37 @@ namespace gcs::mock
             break;
         case protocol::DroneState::EXECUTING_MISSION:
         {
-            runtimeState.missionPhase += deltaSeconds * flightSpeed * 0.25f;
-            runtimeState.posX = 10.0f * std::cos(runtimeState.missionPhase);
-            runtimeState.posY = 10.0f * std::sin(runtimeState.missionPhase);
-            runtimeState.posZ = targetAltitude;
+            if (!runtimeState.missionPoints.empty())
+            {
+                const auto &waypoint = runtimeState.missionPoints[std::min(runtimeState.currentWaypointIndex, runtimeState.missionPoints.size() - 1)];
+                const float targetX = waypoint.northM;
+                const float targetY = waypoint.eastM;
+                const float targetZ = std::max(0.0f, -waypoint.downM);
+                const float deltaX = targetX - runtimeState.posX;
+                const float deltaY = targetY - runtimeState.posY;
+                const float deltaZ = targetZ - runtimeState.posZ;
+                const float distance = std::sqrt(deltaX * deltaX + deltaY * deltaY + deltaZ * deltaZ);
+
+                if (distance > 0.001f)
+                {
+                    const float step = std::min(distance, flightSpeed * deltaSeconds);
+                    runtimeState.posX += deltaX / distance * step;
+                    runtimeState.posY += deltaY / distance * step;
+                    runtimeState.posZ += deltaZ / distance * step;
+                }
+
+                if (distance < 0.5f && runtimeState.currentWaypointIndex + 1 < runtimeState.missionPoints.size())
+                {
+                    runtimeState.currentWaypointIndex += 1;
+                }
+            }
+            else
+            {
+                runtimeState.missionPhase += deltaSeconds * flightSpeed * 0.25f;
+                runtimeState.posX = 10.0f * std::cos(runtimeState.missionPhase);
+                runtimeState.posY = 10.0f * std::sin(runtimeState.missionPhase);
+                runtimeState.posZ = targetAltitude;
+            }
             break;
         }
         case protocol::DroneState::PAUSED:
@@ -368,7 +389,7 @@ namespace gcs::mock
         case protocol::DroneState::PREPARING:
         case protocol::DroneState::READY:
         case protocol::DroneState::ARMING:
-        case protocol::DroneState::ERROR:
+        case protocol::DroneState::INTERNAL_ERROR:
         case protocol::DroneState::EMERGENCY_LANDING:
         case protocol::DroneState::DISCONNECTED:
         default:
@@ -433,7 +454,7 @@ namespace gcs::mock
         {
         case protocol::DroneState::IDLE:
         case protocol::DroneState::LANDED:
-        case protocol::DroneState::ERROR:
+        case protocol::DroneState::INTERNAL_ERROR:
             mask |= protocol::commandBit(CommandId::PREPARE);
             break;
         case protocol::DroneState::READY:
@@ -469,9 +490,9 @@ namespace gcs::mock
     protocol::PayloadTelemetryState MockServer::makeTelemetryStateLocked(const RuntimeState &runtimeState) const
     {
         protocol::PayloadTelemetryState telemetryState{};
-        telemetryState.currentState = static_cast<std::uint8_t>(runtimeState.droneState);
+        telemetryState.currentState = runtimeState.droneState;
         telemetryState.availableCommands = availableCommandsForState(runtimeState.droneState);
-        telemetryState.flightMode = static_cast<std::uint8_t>(runtimeState.flightMode);
+        telemetryState.flightMode = runtimeState.flightMode;
         telemetryState.batteryPercent = runtimeState.batteryPercent;
         return telemetryState;
     }
@@ -511,21 +532,22 @@ namespace gcs::mock
             protocol::PayloadCommand payload{};
             if (!protocol::parsePayload(packetView->payload, payload))
             {
-                sendAck(socket, packetView->msgType, 0, protocol::AckResult::INVALID_PARAM, "invalid command payload");
+                sendAck(socket, packetView->msgType, protocol::CommandId::EMERGENCY_STOP, protocol::AckResult::INVALID_PARAM, "invalid command payload");
                 return;
             }
             handleCommand(socket, payload);
             break;
         }
-        case protocol::MsgType::CMD_SET_PARAMS:
+        case protocol::MsgType::CMD_SET_MISSION:
         {
-            protocol::PayloadMissionParams payload{};
-            if (!protocol::parsePayload(packetView->payload, payload))
+            protocol::PayloadMissionParamsHeader payload{};
+            std::vector<protocol::MissionPointNed> points;
+            if (!protocol::parseMissionPayload(packetView->payload, payload, points))
             {
-                sendAck(socket, packetView->msgType, 0, protocol::AckResult::INVALID_PARAM, "invalid params payload");
+                sendAck(socket, packetView->msgType, protocol::CommandId::EMERGENCY_STOP, protocol::AckResult::INVALID_PARAM, "invalid mission payload");
                 return;
             }
-            handleMissionParameters(socket, payload);
+            handleMissionParameters(socket, payload, std::move(points));
             break;
         }
         case protocol::MsgType::CMD_SET_MODE:
@@ -533,7 +555,7 @@ namespace gcs::mock
             protocol::PayloadSetMode payload{};
             if (!protocol::parsePayload(packetView->payload, payload))
             {
-                sendAck(socket, packetView->msgType, 0, protocol::AckResult::INVALID_PARAM, "invalid mode payload");
+                sendAck(socket, packetView->msgType, protocol::CommandId::EMERGENCY_STOP, protocol::AckResult::INVALID_PARAM, "invalid mode payload");
                 return;
             }
             handleMode(socket, payload);
@@ -544,7 +566,7 @@ namespace gcs::mock
             protocol::PayloadSimObstacles payload{};
             if (!protocol::parsePayload(packetView->payload, payload))
             {
-                sendAck(socket, packetView->msgType, 0, protocol::AckResult::INVALID_PARAM, "invalid obstacle payload");
+                sendAck(socket, packetView->msgType, protocol::CommandId::EMERGENCY_STOP, protocol::AckResult::INVALID_PARAM, "invalid obstacle payload");
                 return;
             }
             handleObstacles(socket, payload);
@@ -555,14 +577,14 @@ namespace gcs::mock
             protocol::PayloadSimLidar payload{};
             if (!protocol::parsePayload(packetView->payload, payload))
             {
-                sendAck(socket, packetView->msgType, 0, protocol::AckResult::INVALID_PARAM, "invalid lidar payload");
+                sendAck(socket, packetView->msgType, protocol::CommandId::EMERGENCY_STOP, protocol::AckResult::INVALID_PARAM, "invalid lidar payload");
                 return;
             }
             handleLidar(socket, payload);
             break;
         }
         default:
-            sendAck(socket, packetView->msgType, 0, protocol::AckResult::REJECTED, "unsupported message type");
+            sendAck(socket, packetView->msgType, protocol::CommandId::EMERGENCY_STOP, protocol::AckResult::REJECTED, "unsupported message type");
             break;
         }
     }
@@ -583,7 +605,7 @@ namespace gcs::mock
             {
             case protocol::CommandId::PREPARE:
                 if (state.droneState == protocol::DroneState::IDLE || state.droneState == protocol::DroneState::LANDED ||
-                    state.droneState == protocol::DroneState::ERROR)
+                    state.droneState == protocol::DroneState::INTERNAL_ERROR)
                 {
                     transitionToLocked(state, protocol::DroneState::PREPARING, now, "CMD_PREPARE");
                     success = true;
@@ -667,7 +689,7 @@ namespace gcs::mock
             case protocol::CommandId::EMERGENCY_STOP:
                 if (state.droneState != protocol::DroneState::DISCONNECTED)
                 {
-                    transitionToLocked(state, protocol::DroneState::ERROR, now, "CMD_EMERGENCY_STOP");
+                    transitionToLocked(state, protocol::DroneState::INTERNAL_ERROR, now, "CMD_EMERGENCY_STOP");
                     success = true;
                     sendState = true;
                 }
@@ -693,30 +715,34 @@ namespace gcs::mock
         }
     }
 
-    void MockServer::handleMissionParameters(asio::ip::tcp::socket &socket, const protocol::PayloadMissionParams &payload)
+    void MockServer::handleMissionParameters(asio::ip::tcp::socket &socket,
+                                             const protocol::PayloadMissionParamsHeader &payload,
+                                             std::vector<protocol::MissionPointNed> points)
     {
         if (payload.takeoffAltitudeM < 1.0f || payload.takeoffAltitudeM > 100.0f || payload.flightSpeedMS < 0.5f ||
-            payload.flightSpeedMS > 20.0f)
+            payload.flightSpeedMS > 20.0f || payload.numPoints != points.size())
         {
-            sendAck(socket, protocol::MsgType::CMD_SET_PARAMS, 0, protocol::AckResult::INVALID_PARAM, "param out of range");
+            sendAck(socket, protocol::MsgType::CMD_SET_MISSION, protocol::CommandId::EMERGENCY_STOP, protocol::AckResult::INVALID_PARAM, "mission payload out of range");
             return;
         }
 
         {
             std::scoped_lock lock(stateMutex);
             state.missionParameters = payload;
+            state.missionPoints = std::move(points);
+            state.currentWaypointIndex = 0;
         }
 
-        log("mission params updated");
-        sendAck(socket, protocol::MsgType::CMD_SET_PARAMS, 0, protocol::AckResult::SUCCESS, "params stored");
+        log("mission payload updated");
+        sendAck(socket, protocol::MsgType::CMD_SET_MISSION, protocol::CommandId::EMERGENCY_STOP, protocol::AckResult::SUCCESS, "mission stored");
     }
 
     void MockServer::handleMode(asio::ip::tcp::socket &socket, const protocol::PayloadSetMode &payload)
     {
-        if (payload.mode != static_cast<std::uint8_t>(protocol::FlightMode::AUTOMATIC) &&
-            payload.mode != static_cast<std::uint8_t>(protocol::FlightMode::SEMI_AUTOMATIC))
+        if (payload.mode != protocol::FlightMode::AUTOMATIC &&
+            payload.mode != protocol::FlightMode::SEMI_AUTOMATIC)
         {
-            sendAck(socket, protocol::MsgType::CMD_SET_MODE, 0, protocol::AckResult::INVALID_PARAM, "unknown mode");
+            sendAck(socket, protocol::MsgType::CMD_SET_MODE, protocol::CommandId::EMERGENCY_STOP, protocol::AckResult::INVALID_PARAM, "unknown mode");
             return;
         }
 
@@ -725,8 +751,8 @@ namespace gcs::mock
             state.flightMode = static_cast<protocol::FlightMode>(payload.mode);
         }
 
-        log(std::string("flight mode -> ") + protocol::flightModeToString(static_cast<protocol::FlightMode>(payload.mode)));
-        sendAck(socket, protocol::MsgType::CMD_SET_MODE, 0, protocol::AckResult::SUCCESS, "mode stored");
+        log(std::string("flight mode -> ") + protocol::flightModeToString(payload.mode));
+        sendAck(socket, protocol::MsgType::CMD_SET_MODE, protocol::CommandId::EMERGENCY_STOP, protocol::AckResult::SUCCESS, "mode stored");
         sendStatePacket(socket);
     }
 
@@ -745,7 +771,7 @@ namespace gcs::mock
         }
 
         log("simulation obstacles updated");
-        sendAck(socket, protocol::MsgType::CMD_SIM_OBSTACLES, 0, protocol::AckResult::SUCCESS, "obstacles stored");
+        sendAck(socket, protocol::MsgType::CMD_SIM_OBSTACLES, protocol::CommandId::EMERGENCY_STOP, protocol::AckResult::SUCCESS, "obstacles stored");
         if (shouldSendState)
         {
             sendStatePacket(socket);
@@ -756,11 +782,11 @@ namespace gcs::mock
     {
         {
             std::scoped_lock lock(stateMutex);
-            state.lidarActive = payload.lidarActive;
+            state.lidarActive = payload.lidarActive != 0;
         }
 
         log(std::string("lidar simulation -> ") + (payload.lidarActive ? "ON" : "OFF"));
-        sendAck(socket, protocol::MsgType::CMD_SIM_LIDAR, 0, protocol::AckResult::SUCCESS, "lidar flag stored");
+        sendAck(socket, protocol::MsgType::CMD_SIM_LIDAR, protocol::CommandId::EMERGENCY_STOP, protocol::AckResult::SUCCESS, "lidar flag stored");
     }
 
     void MockServer::sendStatePacket(asio::ip::tcp::socket &socket)
@@ -782,14 +808,14 @@ namespace gcs::mock
 
     void MockServer::sendAck(asio::ip::tcp::socket &socket,
                             protocol::MsgType originalMsgType,
-                            std::uint8_t originalCommandId,
+                            protocol::CommandId originalCommandId,
                             protocol::AckResult result,
                             std::string_view message)
     {
         protocol::PayloadAck ack{};
-        ack.originalMsgType = static_cast<std::uint8_t>(originalMsgType);
+        ack.originalMsgType = originalMsgType;
         ack.originalCommandId = originalCommandId;
-        ack.result = static_cast<std::uint8_t>(result);
+        ack.result = result;
 
         const auto copyLength = std::min(message.size(), sizeof(ack.message) - 1);
         std::memcpy(ack.message, message.data(), copyLength);
@@ -817,16 +843,40 @@ namespace gcs::mock
 
     void MockServer::sendPointCloudUdp(const TelemetrySnapshot &snapshot, asio::ip::udp::socket &udpSocket)
     {
+        constexpr std::uint16_t pointsPerPacket = 96;
         const auto timestampMs = static_cast<std::uint32_t>(
             std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - startedAt).count());
-        const auto payload = buildPointCloudPayload(timestampMs);
-        const auto packet = protocol::serializePacket(protocol::MsgType::TEL_POINT_CLOUD, std::span<const std::uint8_t>(payload.data(), payload.size()));
+        const auto framePoints = buildPointCloudFrame();
+        const std::uint16_t totalPoints = static_cast<std::uint16_t>(framePoints.size());
+        const std::uint16_t packetCount = static_cast<std::uint16_t>((framePoints.size() + pointsPerPacket - 1) / pointsPerPacket);
 
         std::error_code errorCode;
-        udpSocket.send_to(asio::buffer(packet), *snapshot.udpTargetEndpoint, 0, errorCode);
-        if (errorCode)
+        for (std::uint16_t packetIndex = 0; packetIndex < packetCount; ++packetIndex)
         {
-            log("UDP point cloud send failed: " + errorCode.message());
+            const std::size_t beginIndex = static_cast<std::size_t>(packetIndex) * pointsPerPacket;
+            const std::size_t remaining = framePoints.size() - beginIndex;
+            const std::uint16_t pointsInPacket = static_cast<std::uint16_t>(std::min<std::size_t>(pointsPerPacket, remaining));
+
+            protocol::PayloadPointCloudPacketHeader header{};
+            header.frameTimestampMs = timestampMs;
+            header.packetIndex = packetIndex;
+            header.packetCount = packetCount;
+            header.pointsInPacket = pointsInPacket;
+            header.totalPoints = totalPoints;
+
+            const auto payload = protocol::serializePointCloudPayload(
+                header,
+                std::span<const protocol::PointCloudPoint>(framePoints.data() + beginIndex, pointsInPacket));
+            const auto packet = protocol::serializePacket(protocol::MsgType::TEL_POINT_CLOUD,
+                                                          std::span<const std::uint8_t>(payload.data(), payload.size()));
+            udpSocket.send_to(asio::buffer(packet), *snapshot.udpTargetEndpoint, 0, errorCode);
+            if (errorCode)
+            {
+                log("UDP point cloud send failed: " + errorCode.message());
+                break;
+            }
+
+            std::this_thread::sleep_for(std::chrono::microseconds(350));
         }
     }
 

@@ -49,7 +49,7 @@ namespace gcs::network
         }
 
         closeActiveSocket();
-        queueCondition.notify_all();
+        queueCondition.notify_one();
 
         if (workerThread.joinable())
         {
@@ -69,7 +69,7 @@ namespace gcs::network
             std::lock_guard lock(queueMutex);
             outboundQueue.push_back(std::move(packet));
         }
-        queueCondition.notify_all();
+        queueCondition.notify_one();
         return workerThread.joinable();
     }
 
@@ -113,6 +113,14 @@ namespace gcs::network
 
             emitStatus(SharedState::ConnectionStatus::connected, "TCP connected");
 
+            std::error_code errorCode;
+            socket.non_blocking(true, errorCode);
+            if (errorCode)
+            {
+                emitStatus(SharedState::ConnectionStatus::disconnected, errorCode.message());
+                break;
+            }
+
             protocol::PacketStreamParser parser;
             std::array<std::uint8_t, 4096> readBuffer{};
 
@@ -120,14 +128,6 @@ namespace gcs::network
             {
                 if (!flushOutboundQueue(socket))
                 {
-                    break;
-                }
-
-                std::error_code errorCode;
-                socket.non_blocking(true, errorCode);
-                if (errorCode)
-                {
-                    emitStatus(SharedState::ConnectionStatus::disconnected, errorCode.message());
                     break;
                 }
 

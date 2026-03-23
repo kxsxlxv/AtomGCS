@@ -1,5 +1,6 @@
 #include "config/AppConfig.h"
 #include "shared/protocol/protocol_utils.h"
+#include "state/SharedState.h"
 
 #include <array>
 #include <cstdio>
@@ -40,33 +41,85 @@ void testPayloadRoundTrips()
 {
     using namespace gcs::protocol;
 
-    verifyPayloadRoundTrip(MsgType::CMD_COMMAND, PayloadCommand{static_cast<std::uint8_t>(CommandId::TAKEOFF)});
-    verifyPayloadRoundTrip(MsgType::CMD_SET_PARAMS, PayloadMissionParams{42U, 15.0f, 7.5f});
-    verifyPayloadRoundTrip(MsgType::CMD_SET_MODE, PayloadSetMode{static_cast<std::uint8_t>(FlightMode::SEMI_AUTOMATIC)});
+    verifyPayloadRoundTrip(MsgType::CMD_COMMAND, PayloadCommand{CommandId::TAKEOFF});
+    verifyPayloadRoundTrip(MsgType::CMD_SET_MODE, PayloadSetMode{FlightMode::SEMI_AUTOMATIC});
     verifyPayloadRoundTrip(MsgType::CMD_SIM_OBSTACLES,
                            PayloadSimObstacles{true, false, true, false, true, false, true, false,
-                                               static_cast<std::uint8_t>(VerticalObstacle::ABOVE)});
-    verifyPayloadRoundTrip(MsgType::CMD_SIM_LIDAR, PayloadSimLidar{true});
+                                               VerticalObstacle::ABOVE});
+    verifyPayloadRoundTrip(MsgType::CMD_SIM_LIDAR, PayloadSimLidar{1});
     verifyPayloadRoundTrip(MsgType::TEL_STATE,
-                           PayloadTelemetryState{static_cast<std::uint8_t>(DroneState::READY),
+                           PayloadTelemetryState{DroneState::READY,
                                                  commandBit(CommandId::PREPARE) | commandBit(CommandId::LAND),
-                                                 static_cast<std::uint8_t>(FlightMode::AUTOMATIC),
+                                                 FlightMode::AUTOMATIC,
                                                  76U});
     verifyPayloadRoundTrip(MsgType::TEL_POSITION,
                            PayloadTelemetryPosition{1.0f, 2.0f, -3.0f, 0.1f, 0.2f, 0.3f, 180.0f, 12.0f});
 
     PayloadAck ack{};
-    ack.originalMsgType = static_cast<std::uint8_t>(MsgType::CMD_COMMAND);
-    ack.originalCommandId = static_cast<std::uint8_t>(CommandId::PREPARE);
-    ack.result = static_cast<std::uint8_t>(AckResult::SUCCESS);
+    ack.originalMsgType = MsgType::CMD_COMMAND;
+    ack.originalCommandId = CommandId::PREPARE;
+    ack.result = AckResult::SUCCESS;
     std::strncpy(ack.message, "OK", sizeof(ack.message) - 1);
     verifyPayloadRoundTrip(MsgType::TEL_ACK, ack);
+}
+
+void testMissionPayloadRoundTrip()
+{
+    gcs::protocol::PayloadMissionParamsHeader header{};
+    header.delayedStartTimeSec = 42U;
+    header.takeoffAltitudeM = 15.0f;
+    header.flightSpeedMS = 7.5f;
+    header.numPoints = 2;
+
+    std::vector<gcs::protocol::MissionPointNed> points = {
+        {10.0f, 20.0f, -5.0f},
+        {15.0f, 30.0f, -7.5f},
+    };
+
+    const auto payload = gcs::protocol::serializeMissionPayload(header, points);
+    require(!payload.empty(), "Mission payload serialization failed");
+    const auto packet = gcs::protocol::serializePacket(gcs::protocol::MsgType::CMD_SET_MISSION,
+                                                       std::span<const std::uint8_t>(payload.data(), payload.size()));
+    auto parsed = gcs::protocol::tryParsePacket(packet);
+    require(parsed.has_value(), "Mission packet parse failed");
+
+    gcs::protocol::PayloadMissionParamsHeader parsedHeader{};
+    std::vector<gcs::protocol::MissionPointNed> parsedPoints;
+    require(gcs::protocol::parseMissionPayload(parsed->payload, parsedHeader, parsedPoints),
+            "Mission payload parse failed");
+    require(parsedHeader.numPoints == header.numPoints, "Mission point count mismatch");
+    require(parsedPoints.size() == points.size(), "Mission points size mismatch");
+    require(parsedPoints[1].eastM == points[1].eastM, "Mission point value mismatch");
+}
+
+void testPointCloudPayloadRoundTrip()
+{
+    gcs::protocol::PayloadPointCloudPacketHeader header{};
+    header.frameTimestampMs = 100U;
+    header.packetIndex = 1;
+    header.packetCount = 3;
+    header.pointsInPacket = 2;
+    header.totalPoints = 6;
+
+    std::vector<gcs::protocol::PointCloudPoint> points(2);
+    points[0].x = 1.0f;
+    points[1].y = 2.0f;
+
+    const auto payload = gcs::protocol::serializePointCloudPayload(header, points);
+    require(!payload.empty(), "Point cloud payload serialization failed");
+
+    gcs::protocol::PayloadPointCloudPacketHeader parsedHeader{};
+    std::vector<gcs::protocol::PointCloudPoint> parsedPoints;
+    require(gcs::protocol::parsePointCloudPayload(payload, parsedHeader, parsedPoints),
+            "Point cloud payload parse failed");
+    require(parsedHeader.packetCount == header.packetCount, "Point cloud packet count mismatch");
+    require(parsedPoints.size() == points.size(), "Point cloud points size mismatch");
 }
 
 void testCrcMismatch()
 {
     auto packet = gcs::protocol::serializePacket(gcs::protocol::MsgType::CMD_SIM_LIDAR,
-                                                     gcs::protocol::PayloadSimLidar{true});
+                                                 gcs::protocol::PayloadSimLidar{1});
     require(!packet.empty(), "Packet for CRC test is empty");
     packet.back() ^= 0xFFU;
 
@@ -79,7 +132,7 @@ void testCrcMismatch()
 void testWrongVersion()
 {
     auto packet = gcs::protocol::serializePacket(gcs::protocol::MsgType::CMD_SIM_LIDAR,
-                                                     gcs::protocol::PayloadSimLidar{true});
+                                                 gcs::protocol::PayloadSimLidar{1});
     require(!packet.empty(), "Packet for version test is empty");
     packet[2] = 0x55U;
 
@@ -95,8 +148,8 @@ void testMagicResyncAndPartialFrames()
     PacketStreamParser parser;
 
     const auto firstPacket = serializePacket(MsgType::CMD_SET_MODE,
-                                             PayloadSetMode{static_cast<std::uint8_t>(FlightMode::AUTOMATIC)});
-    const auto secondPacket = serializePacket(MsgType::CMD_SIM_LIDAR, PayloadSimLidar{false});
+                                             PayloadSetMode{FlightMode::AUTOMATIC});
+    const auto secondPacket = serializePacket(MsgType::CMD_SIM_LIDAR, PayloadSimLidar{0});
 
     std::vector<std::uint8_t> noisyStream = {0x00U, 0x11U, 0x22U, 0x33U};
     noisyStream.insert(noisyStream.end(), firstPacket.begin(), firstPacket.begin() + firstPacket.size() / 2);
@@ -137,6 +190,7 @@ void testJsonConfigRoundTrip()
     appConfig.uiPreferences.colorMode = gcs::SharedState::ColorMode::distance;
     appConfig.uiPreferences.logBufferSize = 256;
     appConfig.uiPreferences.autoScrollLog = false;
+    appConfig.uiPreferences.distancePointSizing = true;
 
     std::string errorMessage;
     require(gcs::config::saveAppConfig(appConfigPath, appConfig, errorMessage), "Failed to save app config");
@@ -149,12 +203,19 @@ void testJsonConfigRoundTrip()
             "App config TCP port mismatch");
     require(loadedAppConfig.uiPreferences.colorMode == appConfig.uiPreferences.colorMode,
             "App config color mode mismatch");
+    require(loadedAppConfig.uiPreferences.distancePointSizing == appConfig.uiPreferences.distancePointSizing,
+            "App config distance point sizing mismatch");
 
     gcs::SharedState::MissionParametersModel missionParameters;
     missionParameters.payload.delayedStartTimeSec = 9U;
     missionParameters.payload.takeoffAltitudeM = 17.0f;
     missionParameters.payload.flightSpeedMS = 3.5f;
     missionParameters.flightMode = gcs::protocol::FlightMode::SEMI_AUTOMATIC;
+    missionParameters.pointsNed = {
+        {5.0f, 6.0f, -3.0f},
+        {15.0f, -2.0f, -7.0f},
+    };
+    missionParameters.payload.numPoints = static_cast<std::uint32_t>(missionParameters.pointsNed.size());
 
     require(gcs::config::saveMissionParameters(missionPath, missionParameters, errorMessage),
             "Failed to save mission parameters");
@@ -167,6 +228,8 @@ void testJsonConfigRoundTrip()
     require(loadedMissionParameters.payload.takeoffAltitudeM == missionParameters.payload.takeoffAltitudeM,
             "Mission altitude mismatch");
     require(loadedMissionParameters.flightMode == missionParameters.flightMode, "Mission flight mode mismatch");
+    require(loadedMissionParameters.pointsNed.size() == missionParameters.pointsNed.size(), "Mission point count mismatch");
+    require(loadedMissionParameters.pointsNed[1].downM == missionParameters.pointsNed[1].downM, "Mission point value mismatch");
 
     fs::remove_all(tempDirectory);
 }
@@ -186,6 +249,8 @@ int main()
     try
     {
         testPayloadRoundTrips();
+        testMissionPayloadRoundTrip();
+        testPointCloudPayloadRoundTrip();
         testCrcMismatch();
         testWrongVersion();
         testMagicResyncAndPartialFrames();

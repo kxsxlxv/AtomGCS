@@ -51,7 +51,9 @@ namespace gcs::mock
             bool clientConnected = false;
             protocol::DroneState droneState = protocol::DroneState::DISCONNECTED;
             protocol::FlightMode flightMode = protocol::FlightMode::AUTOMATIC;
-            protocol::PayloadMissionParams missionParameters{};
+            protocol::PayloadMissionParamsHeader missionParameters{};
+            std::vector<protocol::MissionPointNed> missionPoints;
+            std::size_t currentWaypointIndex = 0;
             protocol::PayloadSimObstacles obstacles{};
             bool lidarActive = true;
             bool frontObstacleAutoPauseLatched = false;
@@ -96,7 +98,9 @@ namespace gcs::mock
 
         void processTcpPacket(asio::ip::tcp::socket &socket, std::span<const std::uint8_t> packetBytes);
         void handleCommand(asio::ip::tcp::socket &socket, const protocol::PayloadCommand &payload);
-        void handleMissionParameters(asio::ip::tcp::socket &socket, const protocol::PayloadMissionParams &payload);
+        void handleMissionParameters(asio::ip::tcp::socket &socket,
+                                    const protocol::PayloadMissionParamsHeader &payload,
+                                    std::vector<protocol::MissionPointNed> points);
         void handleMode(asio::ip::tcp::socket &socket, const protocol::PayloadSetMode &payload);
         void handleObstacles(asio::ip::tcp::socket &socket, const protocol::PayloadSimObstacles &payload);
         void handleLidar(asio::ip::tcp::socket &socket, const protocol::PayloadSimLidar &payload);
@@ -104,7 +108,7 @@ namespace gcs::mock
         void sendStatePacket(asio::ip::tcp::socket &socket);
         void sendAck(asio::ip::tcp::socket &socket,
                     protocol::MsgType originalMsgType,
-                    std::uint8_t originalCommandId,
+                    protocol::CommandId originalCommandId,
                     protocol::AckResult result,
                     std::string_view message);
         void sendPositionUdp(const TelemetrySnapshot &snapshot, asio::ip::udp::socket &udpSocket);
@@ -122,4 +126,4 @@ namespace gcs::mock
 
     MockServerConfig parseMockServerConfig(int argc, char **argv);
 
-}
+} // namespace gcs::mock

@@ -21,6 +21,7 @@ AppConfigModel buildDefaultConfig()
     config.uiPreferences.colorMode = SharedState::ColorMode::intensity;
     config.uiPreferences.logBufferSize = 1000;
     config.uiPreferences.autoScrollLog = true;
+    config.uiPreferences.distancePointSizing = false;
     return config;
 }
 
@@ -99,6 +100,7 @@ bool loadAppConfig(const std::filesystem::path &filePath, AppConfigModel &config
         loaded.uiPreferences.colorMode = colorModeFromConfigString(ui.value("color_mode", std::string("intensity")));
         loaded.uiPreferences.logBufferSize = ui.value("log_buffer_size", loaded.uiPreferences.logBufferSize);
         loaded.uiPreferences.autoScrollLog = ui.value("auto_scroll_log", loaded.uiPreferences.autoScrollLog);
+        loaded.uiPreferences.distancePointSizing = ui.value("distance_point_sizing", loaded.uiPreferences.distancePointSizing);
 
         config = loaded;
         return true;
@@ -121,7 +123,8 @@ bool saveAppConfig(const std::filesystem::path &filePath, const AppConfigModel &
          {{"point_size", config.uiPreferences.pointSize},
           {"color_mode", toConfigString(config.uiPreferences.colorMode)},
           {"log_buffer_size", config.uiPreferences.logBufferSize},
-          {"auto_scroll_log", config.uiPreferences.autoScrollLog}}},
+          {"auto_scroll_log", config.uiPreferences.autoScrollLog},
+          {"distance_point_sizing", config.uiPreferences.distancePointSizing}}},
     };
 
     return saveJsonFile(filePath, document, errorMessage);
@@ -131,12 +134,15 @@ bool loadMissionParameters(const std::filesystem::path &filePath,
                            SharedState::MissionParametersModel &missionParameters,
                            std::string &errorMessage)
 {
+    missionParameters.payload.delayedStartTimeSec = 0;
+    missionParameters.payload.takeoffAltitudeM = 10.0f;
+    missionParameters.payload.flightSpeedMS = 5.0f;
+    missionParameters.payload.numPoints = 0;
+    missionParameters.flightMode = protocol::FlightMode::AUTOMATIC;
+    missionParameters.pointsNed.clear();
+
     if (!std::filesystem::exists(filePath))
     {
-        missionParameters.payload.delayedStartTimeSec = 0;
-        missionParameters.payload.takeoffAltitudeM = 10.0f;
-        missionParameters.payload.flightSpeedMS = 5.0f;
-        missionParameters.flightMode = protocol::FlightMode::AUTOMATIC;
         return true;
     }
 
@@ -153,6 +159,28 @@ bool loadMissionParameters(const std::filesystem::path &filePath,
         missionParameters.payload.flightSpeedMS = document.value("flight_speed_m_s", 5.0f);
         missionParameters.flightMode =
             flightModeFromConfigString(document.value("flight_mode", std::string("automatic")));
+
+        if (document.contains("points_ned"))
+        {
+            const auto &points = document.at("points_ned");
+            if (!points.is_array())
+            {
+                errorMessage = "points_ned must be an array";
+                return false;
+            }
+
+            missionParameters.pointsNed.reserve(points.size());
+            for (const auto &pointJson : points)
+            {
+                protocol::MissionPointNed point{};
+                point.northM = pointJson.at("north_m").get<float>();
+                point.eastM = pointJson.at("east_m").get<float>();
+                point.downM = pointJson.at("down_m").get<float>();
+                missionParameters.pointsNed.push_back(point);
+            }
+        }
+
+        missionParameters.payload.numPoints = static_cast<std::uint32_t>(missionParameters.pointsNed.size());
         return true;
     }
     catch (const std::exception &exception)
@@ -166,11 +194,22 @@ bool saveMissionParameters(const std::filesystem::path &filePath,
                            const SharedState::MissionParametersModel &missionParameters,
                            std::string &errorMessage)
 {
+    json points = json::array();
+    for (const auto &point : missionParameters.pointsNed)
+    {
+        points.push_back({
+            {"north_m", point.northM},
+            {"east_m", point.eastM},
+            {"down_m", point.downM},
+        });
+    }
+
     const json document = {
         {"delayed_start_time_sec", missionParameters.payload.delayedStartTimeSec},
         {"takeoff_altitude_m", missionParameters.payload.takeoffAltitudeM},
         {"flight_speed_m_s", missionParameters.payload.flightSpeedMS},
         {"flight_mode", toConfigString(missionParameters.flightMode)},
+        {"points_ned", points},
     };
 
     return saveJsonFile(filePath, document, errorMessage);
@@ -222,4 +261,4 @@ SharedState::ColorMode colorModeFromConfigString(const std::string &value)
     return SharedState::ColorMode::intensity;
 }
 
-}
+} // namespace gcs::config

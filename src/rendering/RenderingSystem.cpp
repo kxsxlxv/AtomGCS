@@ -187,8 +187,8 @@ namespace gcs
         }
         contentScale = xScale;
 
-        constexpr int initialWidth = 1600;
-        constexpr int initialHeight = 950;
+        constexpr int initialWidth = 1920;
+        constexpr int initialHeight = 1080;
         window = glfwCreateWindow(initialWidth, initialHeight, "AtomGCS", nullptr, nullptr);
         if (window == nullptr)
         {
@@ -196,8 +196,8 @@ namespace gcs
         }
 
         glfwMakeContextCurrent(window);
-        glfwSwapInterval(1);
-
+        glfwSwapInterval(1); // VSync ON
+        
         if (!initializeOpenGlLoader(window))
         {
             return false;
@@ -262,7 +262,7 @@ namespace gcs
                                                         &iconConfig);
         materialIconsFont = io.Fonts->AddFontFromMemoryTTF(materialSymbolsOutlined,
                                                             sizeof(materialSymbolsOutlined),
-                                                            24.0f * contentScale,
+                                                            26.0f * contentScale,
                                                             &iconConfig);
     }
 
@@ -272,16 +272,9 @@ namespace gcs
 
         ImGuiStyle &style = ImGui::GetStyle();
         style.ScaleAllSizes(contentScale);
-        // style.WindowRounding = 8.0f;
-        // style.FrameRounding = 6.0f;
-        // style.TabRounding = 6.0f;
-        // style.ScrollbarRounding = 8.0f;
-        // style.FrameBorderSize = 1.0f;
-        // style.WindowBorderSize = 1.0f;
 
         if ((ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_ViewportsEnable) != 0)
         {
-            // style.WindowRounding = 6.0f;
             style.Colors[ImGuiCol_WindowBg].w = 1.0f;
         }
     }

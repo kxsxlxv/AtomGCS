@@ -33,7 +33,7 @@ namespace gcs::protocol
     {
         // НСУ -> МУП
         CMD_COMMAND = 0x01,
-        CMD_SET_PARAMS = 0x02,
+        CMD_SET_MISSION = 0x02,
         CMD_SET_MODE = 0x03,
         CMD_SIM_OBSTACLES = 0x04,
         CMD_SIM_LIDAR = 0x05,
@@ -62,6 +62,7 @@ namespace gcs::protocol
         RETURN_HOME = 0x05,
         LAND = 0x06,
         EMERGENCY_STOP = 0x07,
+        // новые команды добавлять здесь.
     };
 
     struct PayloadCommand
@@ -69,17 +70,28 @@ namespace gcs::protocol
         CommandId commandId;
     };
 
-    struct PayloadMissionParams
+    struct PayloadMissionParamsHeader
     {
         std::uint32_t delayedStartTimeSec;
         float takeoffAltitudeM;
         float flightSpeedMS;
+        std::uint32_t numPoints;
+        // новые скалярные параметры миссии добавлять здесь.
+    };
+
+    struct MissionPointNed
+    {
+        float northM;
+        float eastM;
+        float downM;
+        // поля waypoint добавлять здесь, если потребуется.
     };
 
     enum class FlightMode : std::uint8_t
     {
         AUTOMATIC = 0x01,
-        SEMI_AUTOMATIC = 0x02
+        SEMI_AUTOMATIC = 0x02,
+        // новые режимы добавлять здесь.
     };
 
     struct PayloadSetMode
@@ -129,6 +141,7 @@ namespace gcs::protocol
         LANDED = 0x0C,
         INTERNAL_ERROR = 0x0D,
         EMERGENCY_LANDING = 0x0E,
+        // EXTENSION POINT: новые состояния добавлять здесь.
     };
 
     struct PayloadTelemetryState
@@ -155,10 +168,13 @@ namespace gcs::protocol
         std::uint8_t intensity;
     };
 
-    struct PayloadPointCloudHeader
+    struct PayloadPointCloudPacketHeader
     {
-        std::uint32_t timestampMs;
-        std::uint32_t numPoints;
+        std::uint32_t frameTimestampMs;
+        std::uint16_t packetIndex;
+        std::uint16_t packetCount;
+        std::uint16_t pointsInPacket;
+        std::uint16_t totalPoints;
     };
 
     enum class AckResult : std::uint8_t
@@ -182,27 +198,29 @@ namespace gcs::protocol
     // проверка размеров
     static_assert(sizeof(PacketHeader) == 6);
     static_assert(sizeof(PayloadCommand) == 1);
-    static_assert(sizeof(PayloadMissionParams) == 12);
+    static_assert(sizeof(PayloadMissionParamsHeader) == 16);
+    static_assert(sizeof(MissionPointNed) == 12);
     static_assert(sizeof(PayloadSetMode) == 1);
     static_assert(sizeof(PayloadSimObstacles) == 9);
     static_assert(sizeof(PayloadSimLidar) == 1);
     static_assert(sizeof(PayloadTelemetryState) == 7);
     static_assert(sizeof(PayloadTelemetryPosition) == 32);
     static_assert(sizeof(PointCloudPoint) == 13);
-    static_assert(sizeof(PayloadPointCloudHeader) == 8);
+    static_assert(sizeof(PayloadPointCloudPacketHeader) == 12);
     static_assert(sizeof(PayloadAck) == 67);
 
     // защита от случайного изменения структур
     static_assert(std::is_trivially_copyable_v<PacketHeader>);
     static_assert(std::is_trivially_copyable_v<PayloadCommand>);
-    static_assert(std::is_trivially_copyable_v<PayloadMissionParams>);
+    static_assert(std::is_trivially_copyable_v<PayloadMissionParamsHeader>);
+    static_assert(std::is_trivially_copyable_v<MissionPointNed>);
     static_assert(std::is_trivially_copyable_v<PayloadSetMode>);
     static_assert(std::is_trivially_copyable_v<PayloadSimObstacles>);
     static_assert(std::is_trivially_copyable_v<PayloadSimLidar>);
     static_assert(std::is_trivially_copyable_v<PayloadTelemetryState>);
     static_assert(std::is_trivially_copyable_v<PayloadTelemetryPosition>);
     static_assert(std::is_trivially_copyable_v<PointCloudPoint>);
-    static_assert(std::is_trivially_copyable_v<PayloadPointCloudHeader>);
+    static_assert(std::is_trivially_copyable_v<PayloadPointCloudPacketHeader>);
     static_assert(std::is_trivially_copyable_v<PayloadAck>);
 
-}
+} // namespace gcs::protocol

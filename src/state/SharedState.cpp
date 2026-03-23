@@ -14,19 +14,20 @@ namespace gcs
         protocol::PayloadTelemetryState makeDefaultTelemetryState()
         {
             protocol::PayloadTelemetryState state{};
-            state.currentState = static_cast<std::uint8_t>(protocol::DroneState::DISCONNECTED);
+            state.currentState = protocol::DroneState::DISCONNECTED;
             state.availableCommands = 0;
-            state.flightMode = static_cast<std::uint8_t>(protocol::FlightMode::AUTOMATIC);
+            state.flightMode = protocol::FlightMode::AUTOMATIC;
             state.batteryPercent = 0;
             return state;
         }
-    }
+    } // namespace
 
     SharedState::SharedState()
     {
         missionParameters.payload.delayedStartTimeSec = 0;
         missionParameters.payload.takeoffAltitudeM = 10.0f;
         missionParameters.payload.flightSpeedMS = 5.0f;
+        missionParameters.payload.numPoints = 0;
         simulation.lidar.lidarActive = true;
         telemetryState = makeDefaultTelemetryState();
     }
@@ -184,7 +185,7 @@ namespace gcs
         auto &feedback = commandFeedbacks[commandIndex(commandId)];
         feedback.active = true;
         feedback.pending = true;
-        feedback.result = protocol::AckResult::ERROR;
+        feedback.result = protocol::AckResult::INTERNAL_ERROR;
         feedback.sentAt = now;
         feedback.updatedAt = now;
         feedback.message.clear();
@@ -196,11 +197,11 @@ namespace gcs
         const auto ackResult = static_cast<protocol::AckResult>(ack.result);
         std::unique_lock lock(mutex);
 
-        if (ack.originalMsgType == static_cast<std::uint8_t>(protocol::MsgType::CMD_COMMAND) &&
-            ack.originalCommandId >= static_cast<std::uint8_t>(protocol::CommandId::PREPARE) &&
-            ack.originalCommandId <= commandFeedbackCapacity)
+        if (ack.originalMsgType == protocol::MsgType::CMD_COMMAND &&
+            ack.originalCommandId >= protocol::CommandId::PREPARE &&
+            static_cast<std::uint8_t>(ack.originalCommandId) <= commandFeedbackCapacity)
         {
-            auto &feedback = commandFeedbacks[commandIndex(static_cast<protocol::CommandId>(ack.originalCommandId))];
+            auto &feedback = commandFeedbacks[commandIndex(ack.originalCommandId)];
             feedback.active = true;
             feedback.pending = false;
             feedback.result = ackResult;
@@ -235,11 +236,11 @@ namespace gcs
         switch (status)
         {
         case SharedState::ConnectionStatus::disconnected:
-            return "Disconnected";
+            return "Отключено";
         case SharedState::ConnectionStatus::connecting:
-            return "Connecting";
+            return "Подключение";
         case SharedState::ConnectionStatus::connected:
-            return "Connected";
+            return "Подключено";
         }
 
         return "Unknown";
@@ -258,4 +259,6 @@ namespace gcs
         return "Unknown";
     }
 
-}
+
+} // namespace gcs
+

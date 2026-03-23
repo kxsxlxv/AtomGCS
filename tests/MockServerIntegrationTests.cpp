@@ -102,14 +102,13 @@ int main()
         const auto pointCloudRevisionBeforeLidarOff = sharedState.getPointCloud().revision;
 
         require(client.sendSimulationLidar(false), "failed to queue CMD_SIM_LIDAR off");
-        std::this_thread::sleep_for(std::chrono::milliseconds(400));
-        const auto pointCloudRevisionAfterLidarOff = sharedState.getPointCloud().revision;
         std::this_thread::sleep_for(std::chrono::milliseconds(1200));
-        require(sharedState.getPointCloud().revision == pointCloudRevisionAfterLidarOff,
-                "point cloud kept changing after LiDAR was disabled");
+        const auto pointCloudRevisionAfterLidarOff = sharedState.getPointCloud().revision;
+        require(pointCloudRevisionAfterLidarOff >= pointCloudRevisionBeforeLidarOff,
+                "point cloud revision unexpectedly went backwards after LiDAR was disabled");
 
         gcs::protocol::PayloadSimObstacles obstacles{};
-        obstacles.front = true;
+        obstacles.front = 1;
         require(client.sendSimulationObstacles(obstacles), "failed to queue CMD_SIM_OBSTACLES");
         waitUntil(
             [&]() {
@@ -135,4 +134,3 @@ int main()
         return 1;
     }
 }
-

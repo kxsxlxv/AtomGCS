@@ -24,7 +24,7 @@ namespace gcs
             paths.missionParametersFile = paths.executableDir / "mission_params.json";
             return paths;
         }
-    }
+    } // namespace
 
     Application::Application() = default;
 
@@ -75,6 +75,7 @@ namespace gcs
         }
 
         protocolClient = std::make_unique<network::ProtocolClient>(sharedState);
+
         uiSystem = std::make_unique<UISystem>(*renderingSystem,
                                             sharedState,
                                             *protocolClient,
@@ -90,7 +91,14 @@ namespace gcs
             protocolClient->disconnect();
         }
 
-        saveConfiguration();
+        try 
+        {
+            saveConfiguration();
+        } 
+        catch (const std::exception& e) 
+        {
+            std::cerr << "Failed to save config on shutdown: " << e.what() << std::endl;
+        }
 
         uiSystem.reset();
         pointCloudRenderer.reset();
@@ -134,10 +142,6 @@ namespace gcs
         sharedState.setUiPreferences(appConfig.uiPreferences);
 
         SharedState::MissionParametersModel missionParameters;
-        missionParameters.payload.delayedStartTimeSec = 0;
-        missionParameters.payload.takeoffAltitudeM = 10.0f;
-        missionParameters.payload.flightSpeedMS = 5.0f;
-        missionParameters.flightMode = protocol::FlightMode::AUTOMATIC;
         if (!config::loadMissionParameters(applicationPaths.missionParametersFile, missionParameters, errorMessage))
         {
             sharedState.appendLog(SharedState::LogDirection::local,

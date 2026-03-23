@@ -7,6 +7,7 @@ struct GLFWwindow;
 namespace gcs
 {
 
+    // Низкоуровневая обёртка над GLFW + OpenGL + ImGui
     class RenderingSystem
     {
     public:
@@ -15,7 +16,7 @@ namespace gcs
 
         RenderingSystem(const RenderingSystem &) = delete;
         RenderingSystem &operator=(const RenderingSystem &) = delete;
-
+        
         bool initialize();
         void shutdown();
 

@@ -3,6 +3,7 @@
 #include "shared/protocol/protocol_utils.h"
 
 #include <cstring>
+#include <numeric>
 #include <sstream>
 
 namespace gcs::network
@@ -10,28 +11,28 @@ namespace gcs::network
 
     namespace
     {
-        std::string buildPositionSummary(const protocol::PayloadTelemetryPosition &position)
-        {
-            std::ostringstream stream;
-            stream << "Position (" << position.posX << ", " << position.posY << ", " << position.posZ << ")";
-            return stream.str();
-        }
-
-        std::string buildStateSummary(const protocol::PayloadTelemetryState &state)
-        {
-            std::ostringstream stream;
-            stream << protocol::droneStateToString(static_cast<protocol::DroneState>(state.currentState)) << ", battery "
-                << static_cast<int>(state.batteryPercent) << "%";
-            return stream.str();
-        }
-
-        std::string buildPointCloudSummary(const protocol::PayloadPointCloudHeader &header)
-        {
-            std::ostringstream stream;
-            stream << "Point cloud frame: " << header.numPoints << " points";
-            return stream.str();
-        }
+    std::string buildPositionSummary(const protocol::PayloadTelemetryPosition &position)
+    {
+        std::ostringstream stream;
+        stream << "Position (" << position.posX << ", " << position.posY << ", " << position.posZ << ")";
+        return stream.str();
     }
+
+    std::string buildStateSummary(const protocol::PayloadTelemetryState &state)
+    {
+        std::ostringstream stream;
+        stream << protocol::droneStateToString(static_cast<protocol::DroneState>(state.currentState)) << ", battery "
+            << static_cast<int>(state.batteryPercent) << "%";
+        return stream.str();
+    }
+
+    std::string buildPointCloudSummary(std::uint32_t timestampMs, std::size_t pointCount)
+    {
+        std::ostringstream stream;
+        stream << "Point cloud frame " << timestampMs << ": " << pointCount << " points";
+        return stream.str();
+    }
+    } // namespace
 
     ProtocolClient::ProtocolClient(SharedState &sharedStateValue)
         : sharedState(sharedStateValue),
@@ -55,6 +56,7 @@ namespace gcs::network
                             "CONNECTION",
                             "Connecting to " + settings.ipAddress + ":" + std::to_string(settings.tcpPort));
 
+        resetPartialPointCloud();
         udpReceiver.start(settings.udpPort);
         tcpClient.start(settings);
     }
@@ -63,6 +65,7 @@ namespace gcs::network
     {
         tcpClient.stop();
         udpReceiver.stop();
+        resetPartialPointCloud();
         sharedState.setConnectionStatus(SharedState::ConnectionStatus::disconnected);
         sharedState.appendLog(
             SharedState::LogDirection::local, SharedState::LogCategory::telemetry, "CONNECTION", "Disconnected");
@@ -70,25 +73,36 @@ namespace gcs::network
 
     bool ProtocolClient::sendCommand(protocol::CommandId commandId)
     {
-        protocol::PayloadCommand payload{static_cast<std::uint8_t>(commandId)};
-        sharedState.markCommandSent(commandId);
-        return sendPacket(protocol::MsgType::CMD_COMMAND,
-                        protocol::serializePacket(protocol::MsgType::CMD_COMMAND, payload),
+        protocol::PayloadCommand payload{commandId};
+        auto packet = protocol::serializePacket(protocol::MsgType::CMD_COMMAND, payload);
+
+        if (!sendPacket(protocol::MsgType::CMD_COMMAND,
+                        std::move(packet),
                         SharedState::LogCategory::command,
-                        protocol::commandIdToString(commandId));
+                        protocol::commandIdToString(commandId)))
+        {
+            return false;
+        }
+
+        sharedState.markCommandSent(commandId);
+        return true;
     }
 
     bool ProtocolClient::sendMissionParameters(const SharedState::MissionParametersModel &missionParameters)
     {
-        return sendPacket(protocol::MsgType::CMD_SET_PARAMS,
-                        protocol::serializePacket(protocol::MsgType::CMD_SET_PARAMS, missionParameters.payload),
+        auto header = missionParameters.payload;
+        header.numPoints = static_cast<std::uint32_t>(missionParameters.pointsNed.size());
+        const auto payloadBytes = protocol::serializeMissionPayload(header, missionParameters.pointsNed);
+        return sendPacket(protocol::MsgType::CMD_SET_MISSION,
+                        protocol::serializePacket(protocol::MsgType::CMD_SET_MISSION,
+                                                    std::span<const std::uint8_t>(payloadBytes.data(), payloadBytes.size())),
                         SharedState::LogCategory::command,
-                        "Mission parameters");
+                        "Mission payload: " + std::to_string(header.numPoints) + " NED points");
     }
 
     bool ProtocolClient::sendMode(protocol::FlightMode flightMode)
     {
-        protocol::PayloadSetMode payload{static_cast<std::uint8_t>(flightMode)};
+        protocol::PayloadSetMode payload{flightMode};
         return sendPacket(protocol::MsgType::CMD_SET_MODE,
                         protocol::serializePacket(protocol::MsgType::CMD_SET_MODE, payload),
                         SharedState::LogCategory::command,
@@ -105,7 +119,7 @@ namespace gcs::network
 
     bool ProtocolClient::sendSimulationLidar(bool lidarActive)
     {
-        protocol::PayloadSimLidar payload{lidarActive};
+        protocol::PayloadSimLidar payload{static_cast<std::uint8_t>(lidarActive ? 1 : 0)};
         return sendPacket(protocol::MsgType::CMD_SIM_LIDAR,
                         protocol::serializePacket(protocol::MsgType::CMD_SIM_LIDAR, payload),
                         SharedState::LogCategory::command,
@@ -182,10 +196,6 @@ namespace gcs::network
             }
 
             sharedState.updateTelemetryPosition(payload);
-            sharedState.appendLog(SharedState::LogDirection::inbound,
-                                SharedState::LogCategory::telemetry,
-                                "TEL_POSITION",
-                                buildPositionSummary(payload));
             break;
         }
         default:
@@ -222,50 +232,22 @@ namespace gcs::network
             }
 
             sharedState.updateTelemetryPosition(payload);
-            sharedState.appendLog(SharedState::LogDirection::inbound,
-                                SharedState::LogCategory::telemetry,
-                                "TEL_POSITION",
-                                buildPositionSummary(payload));
             break;
         }
         case protocol::MsgType::TEL_POINT_CLOUD:
         {
-            if (packetView->payload.size() < sizeof(protocol::PayloadPointCloudHeader))
+            protocol::PayloadPointCloudPacketHeader header{};
+            std::vector<protocol::PointCloudPoint> points;
+            if (!protocol::parsePointCloudPayload(packetView->payload, header, points))
             {
                 sharedState.appendLog(SharedState::LogDirection::inbound,
                                     SharedState::LogCategory::error,
                                     "TEL_POINT_CLOUD",
-                                    "Point cloud payload shorter than header");
+                                    "Invalid point cloud packet payload");
                 return;
             }
 
-            protocol::PayloadPointCloudHeader header{};
-            std::memcpy(&header, packetView->payload.data(), sizeof(header));
-            const std::size_t expectedPayloadSize = sizeof(protocol::PayloadPointCloudHeader) +
-                                                    static_cast<std::size_t>(header.numPoints) *
-                                                        sizeof(protocol::PointCloudPoint);
-            if (header.numPoints > protocol::maxPointCloudPointsPerPacket || packetView->payload.size() != expectedPayloadSize)
-            {
-                sharedState.appendLog(SharedState::LogDirection::inbound,
-                                    SharedState::LogCategory::error,
-                                    "TEL_POINT_CLOUD",
-                                    "Invalid point cloud frame size");
-                return;
-            }
-
-            std::vector<protocol::PointCloudPoint> points(header.numPoints);
-            if (!points.empty())
-            {
-                std::memcpy(points.data(),
-                            packetView->payload.data() + sizeof(protocol::PayloadPointCloudHeader),
-                            points.size() * sizeof(protocol::PointCloudPoint));
-            }
-
-            sharedState.updatePointCloud(header.timestampMs, std::move(points));
-            sharedState.appendLog(SharedState::LogDirection::inbound,
-                                SharedState::LogCategory::telemetry,
-                                "TEL_POINT_CLOUD",
-                                buildPointCloudSummary(header));
+            handlePointCloudPacket(header, std::move(points));
             break;
         }
         default:
@@ -280,6 +262,11 @@ namespace gcs::network
     void ProtocolClient::handleTcpStatus(SharedState::ConnectionStatus status, std::string message)
     {
         sharedState.setConnectionStatus(status);
+        if (status == SharedState::ConnectionStatus::disconnected)
+        {
+            resetPartialPointCloud();
+        }
+
         sharedState.appendLog(SharedState::LogDirection::local,
                             status == SharedState::ConnectionStatus::disconnected ? SharedState::LogCategory::error
                                                                                     : SharedState::LogCategory::telemetry,
@@ -291,6 +278,76 @@ namespace gcs::network
     {
         sharedState.appendLog(
             SharedState::LogDirection::local, SharedState::LogCategory::error, "UDP", std::move(message));
+    }
+
+    void ProtocolClient::handlePointCloudPacket(const protocol::PayloadPointCloudPacketHeader &header,
+                                                std::vector<protocol::PointCloudPoint> points)
+    {
+        const auto now = std::chrono::steady_clock::now();
+        const bool shouldStartNewFrame = !partialPointCloud.has_value() ||
+                                        partialPointCloud->timestampMs != header.frameTimestampMs ||
+                                        partialPointCloud->packetCount != header.packetCount ||
+                                        partialPointCloud->totalPoints != header.totalPoints ||
+                                        (now - partialPointCloud->startedAt) > std::chrono::milliseconds(400);
+
+        if (shouldStartNewFrame)
+        {
+            publishPartialPointCloud();
+            partialPointCloud = PartialPointCloudFrame{};
+            partialPointCloud->timestampMs = header.frameTimestampMs;
+            partialPointCloud->packetCount = header.packetCount;
+            partialPointCloud->totalPoints = header.totalPoints;
+            partialPointCloud->receivedPackets = 0;
+            partialPointCloud->packetPoints.resize(header.packetCount);
+            partialPointCloud->received.assign(header.packetCount, false);
+            partialPointCloud->startedAt = now;
+        }
+
+        if (!partialPointCloud->received[header.packetIndex])
+        {
+            partialPointCloud->packetPoints[header.packetIndex] = std::move(points);
+            partialPointCloud->received[header.packetIndex] = true;
+            partialPointCloud->receivedPackets += 1;
+        }
+
+        if (partialPointCloud->receivedPackets == partialPointCloud->packetCount)
+        {
+            publishPartialPointCloud();
+        }
+    }
+
+    void ProtocolClient::publishPartialPointCloud()
+    {
+        if (!partialPointCloud.has_value() || partialPointCloud->receivedPackets == 0)
+        {
+            resetPartialPointCloud();
+            return;
+        }
+
+        std::vector<protocol::PointCloudPoint> framePoints;
+        framePoints.reserve(partialPointCloud->totalPoints);
+        for (const auto &packetPoints : partialPointCloud->packetPoints)
+        {
+            framePoints.insert(framePoints.end(), packetPoints.begin(), packetPoints.end());
+        }
+
+        if (framePoints.size() > partialPointCloud->totalPoints)
+        {
+            framePoints.resize(partialPointCloud->totalPoints);
+        }
+
+        const auto finalPointCount = framePoints.size();
+        sharedState.updatePointCloud(partialPointCloud->timestampMs, std::move(framePoints));
+        sharedState.appendLog(SharedState::LogDirection::inbound,
+                            SharedState::LogCategory::telemetry,
+                            "TEL_POINT_CLOUD",
+                            buildPointCloudSummary(partialPointCloud->timestampMs, finalPointCount));
+        resetPartialPointCloud();
+    }
+
+    void ProtocolClient::resetPartialPointCloud()
+    {
+        partialPointCloud.reset();
     }
 
     bool ProtocolClient::sendPacket(protocol::MsgType msgType,
@@ -321,4 +378,5 @@ namespace gcs::network
         }
         return queued;
     }
-}
+
+} // namespace gcs::network

@@ -641,7 +641,7 @@ namespace gcs
 
         ImGui::SameLine();
 
-        if (renderIconButton(renderingSystem.getMaterialIconsFont(),  ICON_MS_UPLOAD_FILE, CommandButtonState::Idle, true, 52.0f))//tooltip - загрузка из файла
+        if (renderIconButton(renderingSystem.getMaterialIconsFont(),  ICON_MS_UPLOAD_FILE, CommandButtonState::Idle, true, renderingSystem.getContentScale() * 52.0f))//tooltip - загрузка из файла
         {
             SharedState::MissionParametersModel loadedMissionParameters = missionParameters;
             std::string errorMessage;

@@ -53,8 +53,9 @@ namespace gcs
 
         struct MissionParametersModel
         {
-            protocol::PayloadMissionParams payload{};
+            protocol::PayloadMissionParamsHeader payload{};
             protocol::FlightMode flightMode = protocol::FlightMode::AUTOMATIC;
+            std::vector<protocol::MissionPointNed> pointsNed;
         };
 
         struct SimulationModel
@@ -69,6 +70,7 @@ namespace gcs
             ColorMode colorMode = ColorMode::intensity;
             std::size_t logBufferSize = 1000;
             bool autoScrollLog = true;
+            bool distancePointSizing = false;
         };
 
         struct LogEntry
@@ -91,7 +93,7 @@ namespace gcs
         {
             bool active = false;
             bool pending = false;
-            protocol::AckResult result = static_cast<protocol::AckResult>(0x03);
+            protocol::AckResult result = protocol::AckResult::INTERNAL_ERROR;
             std::chrono::steady_clock::time_point sentAt{};
             std::chrono::steady_clock::time_point updatedAt{};
             std::string message;
@@ -169,4 +171,4 @@ namespace gcs
     const char *toString(SharedState::ConnectionStatus status);
     const char *toString(SharedState::ColorMode colorMode);
 
-}
+} // namespace gcs
