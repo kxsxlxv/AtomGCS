@@ -15,39 +15,14 @@
 #include <cstring>
 #include <sstream>
 #include <string>
-#include "UISystem.h"
 
+#include <glm/trigonometric.hpp>
+#include "viewer/SceneOverlay.h"
 namespace gcs
 {
 
     namespace
     {
-        constexpr std::array commandList = 
-        {
-            protocol::CommandId::PREPARE,
-            protocol::CommandId::TAKEOFF,
-            protocol::CommandId::START_MISSION,
-            protocol::CommandId::PAUSE_RESUME,
-            protocol::CommandId::RETURN_HOME,
-            protocol::CommandId::LAND,
-            protocol::CommandId::EMERGENCY_STOP,
-        };
-
-        const char* getCommandLabel(protocol::CommandId commandId, bool isPaused)
-        {
-            switch (commandId)
-            {
-            case protocol::CommandId::PREPARE:       return "Подготовка";
-            case protocol::CommandId::TAKEOFF:       return "Взлет";
-            case protocol::CommandId::START_MISSION: return "Миссия";
-            case protocol::CommandId::PAUSE_RESUME:  return isPaused ? "Продолжить" : "Пауза";
-            case protocol::CommandId::RETURN_HOME:   return "Домой (RTL)";
-            case protocol::CommandId::LAND:          return "Посадка";
-            case protocol::CommandId::EMERGENCY_STOP: return "Аварийная остановка";
-            default: return "Команда";
-            }
-        }
-
         // Иконки для команд
         const char* getCommandIcon(protocol::CommandId commandId, bool isPaused)
         {
@@ -61,6 +36,22 @@ namespace gcs
                 case protocol::CommandId::LAND:          return ICON_MS_FLIGHT_LAND;
                 case protocol::CommandId::EMERGENCY_STOP: return ICON_MS_DESTRUCTION;
                 default: return ICON_MS_HELP;
+            }
+        }
+
+        // Подсказки
+        const char *getCommandTooltip(protocol::CommandId commandId, bool isPaused)
+        {
+            switch (commandId)
+            {
+            case protocol::CommandId::PREPARE:        return "Подготовка дрона к полёту";
+            case protocol::CommandId::TAKEOFF:        return "Взлёт на заданную высоту";
+            case protocol::CommandId::START_MISSION:  return "Начать миссию";
+            case protocol::CommandId::PAUSE_RESUME:   return isPaused ? "Продолжить миссию" : "Приостановить миссию";
+            case protocol::CommandId::RETURN_HOME:    return "Возврат на точку старта";
+            case protocol::CommandId::LAND:           return "Посадка на текущую позицию";
+            case protocol::CommandId::EMERGENCY_STOP: return "Аварийная остановка двигателей";
+            default: return "Неизвестная команда";
             }
         }
 
@@ -124,7 +115,7 @@ namespace gcs
             case protocol::DroneState::RETURNING_HOME:
             case protocol::DroneState::LANDING:
                 return ImVec4(0.90f, 0.72f, 0.18f, 1.0f);
-            case protocol::DroneState::ERROR:
+            case protocol::DroneState::INTERNAL_ERROR:
             case protocol::DroneState::EMERGENCY_LANDING:
             case protocol::DroneState::DISCONNECTED:
             default:
@@ -138,7 +129,6 @@ namespace gcs
             ImVec2 screenPosition = ImGui::GetCursorScreenPos();
             float textLineHeight = ImGui::GetTextLineHeight();
             
-            // Настройки геометрии
             constexpr float circleRadius = 6.0f;
             const float paddingX = 8.0f;
 
@@ -184,7 +174,15 @@ namespace gcs
             return true;
         }
 
-        bool renderIconButton(ImFont *font, const char *icon, ButtonState buttonState, bool isEnabled, float size)
+        CommandButtonState feedbackToButtonState(const SharedState::CommandFeedback &feedback)
+        {
+            if (feedback.pending)
+                return CommandButtonState::Pending;
+
+            return CommandButtonState::Idle;
+        }
+
+        bool renderIconButton(ImFont *font, const char *icon, CommandButtonState state, bool isEnabled, float size)
         {
             if (!isEnabled)
                 ImGui::BeginDisabled();
@@ -195,41 +193,29 @@ namespace gcs
 
             ImVec4 backgroundColor;
             ImVec4 hoverColor;
+            ImVec4 activeColor = ImVec4(0.15f, 0.45f, 0.85f, 0.9f);
 
-            switch (buttonState)
+            if (state == CommandButtonState::Pending)
             {
-            case ButtonState::On:
-            {
-                backgroundColor = ImVec4(0.23f, 0.60f, 1.0f, 0.60f);
-                hoverColor = ImVec4(0.30f, 0.70f, 1.0f, 0.85f);
-                break;
+                float t = 0.5f + 0.5f * sinf(static_cast<float>(ImGui::GetTime()) * 4.0f);
+                backgroundColor = ImVec4(
+                    0.25f + t * 0.10f,
+                    0.25f + t * 0.35f,
+                    0.25f + t * 0.75f,
+                    0.50f + t * 0.20f);
+                hoverColor  = backgroundColor;
+                activeColor = backgroundColor;
             }
-
-            case ButtonState::InProcess:
-            {
-                float t = 0.5f + 0.5f * sinf((float)ImGui::GetTime() * 4.0f); // Пульсация
-
-                backgroundColor = ImVec4(0.25f + t * 0.10f, // R: 0.25 → 0.35
-                                        0.25f + t * 0.35f, // G: 0.25 → 0.60
-                                        0.25f + t * 0.75f, // B: 0.25 → 1.00
-                                        0.50f + t * 0.20f  // A: 0.50 → 0.70
-                );
-                hoverColor = backgroundColor;
-                break;
-            }
-
-            case ButtonState::Off:
-            default:
+            else
             {
                 backgroundColor = ImVec4(0.25f, 0.25f, 0.25f, 0.25f);
-                hoverColor = ImVec4(0.35f, 0.35f, 0.35f, 0.70f);
-                break;
-            }
+                hoverColor      = ImVec4(0.35f, 0.35f, 0.35f, 0.70f);
+                activeColor     = ImVec4(0.15f, 0.45f, 0.85f, 0.90f);
             }
 
-            ImGui::PushStyleColor(ImGuiCol_Button, backgroundColor);
-            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, hoverColor);
-            ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.15f, 0.45f, 0.85f, 0.9f));
+            ImGui::PushStyleColor(ImGuiCol_Button,        backgroundColor);
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered,  hoverColor);
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive,   activeColor);
 
             ImVec2 iconSize = ImGui::CalcTextSize(icon);
             bool clicked = ImGui::Button(icon, ImVec2(iconSize.x + 16, iconSize.y + 16));
@@ -243,6 +229,55 @@ namespace gcs
 
             return clicked;
         }
+
+        bool renderEmergencyButton(ImFont *font, const char *icon, CommandButtonState state, bool isEnabled, float size)
+        {
+            if (!isEnabled)
+                ImGui::BeginDisabled();
+
+            ImGui::PushFont(font, size);
+            ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(8, 8));
+            ImGui::PushStyleVar(ImGuiStyleVar_ButtonTextAlign, ImVec2(0.5f, 0.5f));
+
+            ImVec4 backgroundColor, hoverColor, activeColor;
+
+            if (state == CommandButtonState::Pending)
+            {
+                float t = 0.5f + 0.5f * sinf(static_cast<float>(ImGui::GetTime()) * 4.0f);
+                backgroundColor = ImVec4(0.70f + t * 0.15f, 0.10f, 0.10f, 0.70f + t * 0.20f);
+                hoverColor = backgroundColor;
+                activeColor = backgroundColor;
+            }
+            else
+            {
+                backgroundColor = ImVec4(0.70f, 0.12f, 0.12f, 0.80f);
+                hoverColor = ImVec4(0.85f, 0.18f, 0.18f, 0.90f);
+                activeColor = ImVec4(1.00f, 0.10f, 0.10f, 1.00f);
+            }
+
+            ImGui::PushStyleColor(ImGuiCol_Button,        backgroundColor);
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered,  hoverColor);
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive,   activeColor);
+
+            ImVec2 iconSize = ImGui::CalcTextSize(icon);
+            bool clicked = ImGui::Button(icon, ImVec2(iconSize.x + 20, iconSize.y + 20));
+
+            ImGui::PopStyleColor(3);
+            ImGui::PopStyleVar(2);
+            ImGui::PopFont();
+
+            if (!isEnabled)
+                ImGui::EndDisabled();
+
+            return clicked;
+        }
+
+        void tooltipIfHovered(const char *text)
+        {
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip("%s", text);
+        }
+
     }
 
     UISystem::UISystem(RenderingSystem &renderingSystemValue,
@@ -264,7 +299,7 @@ namespace gcs
         renderDockspace();
 
         // Панели управления
-        renderConnectionPanel();
+        renderConnectionPanel(snapshot);
         renderCommandsPanel(snapshot);
         renderMissionParametersPanel(snapshot);
         renderTelemetryPanel(snapshot);
@@ -294,13 +329,13 @@ namespace gcs
         ImGui::End();
     }
 
-    void UISystem::renderConnectionPanel()
+    void UISystem::renderConnectionPanel(const SharedState::Snapshot &snapshot)
     {
         syncConnectionEditor();
 
         ImGui::Begin("Соединение");
 
-        const auto status = sharedState.getConnectionStatus();
+        const auto status = snapshot.connectionStatus;
         ImVec4 statusColor;
         if (status == SharedState::ConnectionStatus::connecting)
             statusColor = ImVec4(0.92f, 0.72f, 0.18f, 1.0f);
@@ -317,20 +352,24 @@ namespace gcs
         if (status == SharedState::ConnectionStatus::disconnected)
         {
             // Кнопка CONNECT (активна только когда отключены)
-            if (renderIconButton(renderingSystem.getMaterialIconsFont(), ICON_MS_POWER, ButtonState::Off, true, 85.0f))
+            if (renderIconButton(renderingSystem.getMaterialIconsFont(), ICON_MS_POWER, CommandButtonState::Idle, true, renderingSystem.getContentScale() * 68.0f))
             {
                 persistConnectionEditor();
                 protocolClient.connect();
             }
+
+            tooltipIfHovered("Подключиться к дрону");
         }
         else
         {
             // Кнопка DISCONNECT (заблокирована, если в процессе соединения)
             bool canDisconnect = (status != SharedState::ConnectionStatus::connecting);
-            if (renderIconButton(renderingSystem.getMaterialIconsFont(), ICON_MS_POWER, ButtonState::On, canDisconnect, 85.0f))
+            if (renderIconButton(renderingSystem.getMaterialIconsFont(), ICON_MS_POWER, CommandButtonState::Idle, canDisconnect, renderingSystem.getContentScale() * 68.0f))
             {
                 protocolClient.disconnect();
             }
+
+            tooltipIfHovered(canDisconnect ? "Отключиться от дрона" : "Ожидание подключения...");
         }
 
         ImGui::SameLine();
@@ -340,21 +379,24 @@ namespace gcs
         {
             if (lockFields) ImGui::BeginDisabled();
 
-            ImGui::SetNextItemWidth(200);
-            if (ImGui::InputText("IP address", ipAddressBuffer.data(), ipAddressBuffer.size()))
+            ImGui::SetNextItemWidth(renderingSystem.getContentScale() * 160);
+            if (ImGui::InputText("IP", ipAddressBuffer.data(), ipAddressBuffer.size()))
                 persistConnectionEditor();
+            tooltipIfHovered("IP-адрес дрона");
 
-            ImGui::SetNextItemWidth(200);
-            if (ImGui::InputInt("TCP port", &tcpPortValue)) {
+            ImGui::SetNextItemWidth(renderingSystem.getContentScale() * 160);
+            if (ImGui::InputInt("TCP", &tcpPortValue)) {
                 tcpPortValue = std::clamp(tcpPortValue, 1, 65535);
                 persistConnectionEditor();
             }
+            tooltipIfHovered("Порт TCP для команд");
 
-            ImGui::SetNextItemWidth(200);
-            if (ImGui::InputInt("UDP port", &udpPortValue)) {
+            ImGui::SetNextItemWidth(renderingSystem.getContentScale() * 160);
+            if (ImGui::InputInt("UDP", &udpPortValue)) {
                 udpPortValue = std::clamp(udpPortValue, 1, 65535);
                 persistConnectionEditor();
             }
+            tooltipIfHovered("Порт UDP для телеметрии");
 
             if (lockFields) ImGui::EndDisabled();
         }
@@ -367,48 +409,178 @@ namespace gcs
     {
         ImGui::Begin("Команды");
 
-        const bool isConnected = snapshot.connectionStatus == SharedState::ConnectionStatus::connected;
-        const bool isPaused = static_cast<protocol::DroneState>(snapshot.telemetryState.currentState) == protocol::DroneState::PAUSED;
+        const bool isConnected =
+        snapshot.connectionStatus == SharedState::ConnectionStatus::connected;
+        const auto droneState = snapshot.telemetryState.currentState;
+        const bool isPaused = (droneState == protocol::DroneState::PAUSED);
 
-        if (ImGui::BeginTable("CommandTable", 2, ImGuiTableFlags_NoSavedSettings | ImGuiTableFlags_SizingFixedFit))
+        const auto commandButton = [&](protocol::CommandId commandId,
+                                   const char *icon,
+                                   const char *tooltip,
+                                   float size) -> bool
         {
-            for (std::size_t index = 0; index < commandList.size(); ++index)
+            const bool commandAvailable = protocol::isCommandAvailable(
+                snapshot.telemetryState.availableCommands, commandId);
+            const bool enabled = isConnected && commandAvailable;
+            const auto &feedback =
+                snapshot.commandFeedbacks[commandFeedbackIndex(commandId)];
+
+            CommandButtonState btnState = feedbackToButtonState(feedback);
+
+            bool clicked = renderIconButton(
+                renderingSystem.getMaterialIconsFont(), icon, btnState, enabled, renderingSystem.getContentScale() * 96.0f);
+
+            // Tooltip
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
             {
-                const auto commandId = commandList[index];
-                const bool commandAvailable = protocol::isCommandAvailable(snapshot.telemetryState.availableCommands, commandId);
-                const bool enabled = isConnected && commandAvailable;
-
-                const auto &feedback = snapshot.commandFeedbacks[commandFeedbackIndex(commandId)];
-                
-                // Определяем визуальное состояние для иконки
-                ButtonState btnState = ButtonState::Off;
-                if (feedback.pending) btnState = ButtonState::InProcess;
-                else if (feedback.active && feedback.result == protocol::AckResult::SUCCESS) btnState = ButtonState::On;
-
-                ImGui::TableNextColumn();
-                
-                if (renderIconButton(renderingSystem.getMaterialIconsFont(), 
-                                     getCommandIcon(commandId, isPaused), 
-                                     btnState, enabled, 120.0f))
-                {
-                    protocolClient.sendCommand(commandId);
-                }
+                if (!isConnected)
+                    ImGui::SetTooltip("Сначала подключись");
+                else if (!commandAvailable)
+                    ImGui::SetTooltip("%s — недоступно", tooltip);
+                else
+                    ImGui::SetTooltip("%s", tooltip);
             }
-            ImGui::EndTable();
+
+            if (clicked)
+                protocolClient.sendCommand(commandId);
+
+            return clicked;
+        };
+
+        commandButton(protocol::CommandId::PREPARE, ICON_MS_FACT_CHECK, "Подготовка дрона к полёту", renderingSystem.getContentScale() * 96.0f);
+
+        ImGui::SameLine();
+
+        // Комбо-кнопка Взлёт/Посадка
+        {
+            const bool takeoffAvailable = protocol::isCommandAvailable(
+                snapshot.telemetryState.availableCommands, protocol::CommandId::TAKEOFF);
+            const bool landAvailable = protocol::isCommandAvailable(
+                snapshot.telemetryState.availableCommands, protocol::CommandId::LAND);
+
+            // логика переключения
+            const bool showLand = landAvailable ||
+                (!takeoffAvailable && !landAvailable &&
+                (droneState == protocol::DroneState::IN_FLIGHT ||
+                droneState == protocol::DroneState::EXECUTING_MISSION ||
+                droneState == protocol::DroneState::PAUSED ||
+                droneState == protocol::DroneState::RETURNING_HOME ||
+                droneState == protocol::DroneState::LANDING));
+
+            const protocol::CommandId activeCommand =
+                showLand ? protocol::CommandId::LAND : protocol::CommandId::TAKEOFF;
+            const char *icon =
+                showLand ? ICON_MS_FLIGHT_LAND : ICON_MS_FLIGHT_TAKEOFF;
+
+            const bool available = protocol::isCommandAvailable(snapshot.telemetryState.availableCommands, activeCommand);
+            const bool enabled = isConnected && available;
+
+            // Feedback ТОЛЬКО от текущей активной команды
+            const auto &feedback = snapshot.commandFeedbacks[commandFeedbackIndex(activeCommand)];
+
+            CommandButtonState btnState = feedbackToButtonState(feedback);
+
+            if (renderIconButton(renderingSystem.getMaterialIconsFont(), icon, btnState, enabled, renderingSystem.getContentScale() * 96.0f))
+            {
+                protocolClient.sendCommand(activeCommand);
+            }
+
+            // Tooltip
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            {
+                if (!isConnected)
+                    ImGui::SetTooltip("Сначала подключитесь");
+                else if (!enabled && showLand)
+                    ImGui::SetTooltip("Посадка — недоступна");
+                else if (!enabled)
+                    ImGui::SetTooltip("Взлёт — недоступен");
+                else if (showLand)
+                    ImGui::SetTooltip("Посадка на текущую позицию");
+                else
+                    ImGui::SetTooltip("Взлёт на %.0f м", snapshot.missionParameters.payload.takeoffAltitudeM);
+            }
         }
 
-        ImGui::TextDisabled("Unavailable commands are disabled from TEL_STATE.available_commands.");
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::Spacing();
+        
+        // Миссия, Пауза, Домой
+        commandButton(protocol::CommandId::START_MISSION, ICON_MS_ROUTE, "Начать выполнение миссии", renderingSystem.getContentScale() * 96.0f);
+
+        ImGui::SameLine();
+        commandButton(protocol::CommandId::PAUSE_RESUME,
+                    isPaused ? ICON_MS_PLAY_CIRCLE : ICON_MS_PAUSE,
+                    isPaused ? "Продолжить миссию" : "Приостановить миссию", renderingSystem.getContentScale() * 96.0f);
+
+        ImGui::SameLine();
+
+        commandButton(protocol::CommandId::RETURN_HOME, ICON_MS_HOME, "Возврат на точку старта", renderingSystem.getContentScale() * 96.0f);
+
+        // Аварийная остановка
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::Spacing();
+
+        {
+            const auto cmdId = protocol::CommandId::EMERGENCY_STOP;
+            const bool commandAvailable = protocol::isCommandAvailable(snapshot.telemetryState.availableCommands, cmdId);
+            const bool enabled = isConnected && commandAvailable;
+            const auto &feedback = snapshot.commandFeedbacks[commandFeedbackIndex(cmdId)];
+
+            CommandButtonState btnState = feedbackToButtonState(feedback);
+
+            if (renderEmergencyButton(renderingSystem.getMaterialIconsFont(), ICON_MS_DESTRUCTION, btnState, enabled, renderingSystem.getContentScale() * 96.0f))
+            {
+                if (emergencyStopArmed)
+                {
+                    protocolClient.sendCommand(cmdId);
+                    emergencyStopArmed = false;
+                }
+                else
+                {
+                    emergencyStopArmed = true;
+                }
+            }
+
+            // Tooltip
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            {
+                if (!enabled)
+                    ImGui::SetTooltip("Аварийная остановка — недоступна");
+                else if (emergencyStopArmed)
+                    ImGui::SetTooltip("Нажмите ещё раз для подтверждения!");
+                else
+                    ImGui::SetTooltip("Аварийная остановка двигателей\n(двойное нажатие)");
+            }
+
+            // Сброс если мышь ушла
+            if (emergencyStopArmed && !ImGui::IsItemHovered())
+                emergencyStopArmed = false;
+
+            // Пульсирующая рамка когда взведена
+            if (emergencyStopArmed && enabled)
+            {
+                float t = 0.5f + 0.5f * sinf(static_cast<float>(ImGui::GetTime()) * 8.0f);
+                ImGui::GetWindowDrawList()->AddRect(
+                    ImGui::GetItemRectMin(), ImGui::GetItemRectMax(),
+                    ImGui::GetColorU32(ImVec4(1.0f, 0.2f + t * 0.3f, 0.1f, 0.7f + t * 0.3f)),
+                    4.0f, 0, 3.0f);
+            }
+        }
+
         ImGui::End();
     }
 
     void UISystem::renderMissionParametersPanel(const SharedState::Snapshot &snapshot)
     {
-        ImGui::Begin("Mission Parameters");
+        ImGui::Begin("Параметры миссии");
 
         auto missionParameters = snapshot.missionParameters;
 
         int delayedStartSeconds = static_cast<int>(missionParameters.payload.delayedStartTimeSec);
-        if (ImGui::InputInt("Delayed start (sec)", &delayedStartSeconds))
+        ImGui::SetNextItemWidth(renderingSystem.getContentScale() * 160);
+        if (ImGui::InputInt("Задержка", &delayedStartSeconds))//добавить tooltip - задержка старта в секундах
         {
             delayedStartSeconds = std::max(delayedStartSeconds, 0);
             missionParameters.payload.delayedStartTimeSec = static_cast<std::uint32_t>(delayedStartSeconds);
@@ -416,38 +588,39 @@ namespace gcs
         }
 
         float takeoffAltitude = missionParameters.payload.takeoffAltitudeM;
-        if (ImGui::InputFloat("Takeoff altitude (m)", &takeoffAltitude, 0.5f, 1.0f, "%.1f"))
+        ImGui::SetNextItemWidth(renderingSystem.getContentScale() * 160);
+        if (ImGui::InputFloat("Высота взлёта", &takeoffAltitude, 0.5f, 1.0f, "%.1f")) //добавить tooltip - m
         {
             missionParameters.payload.takeoffAltitudeM = std::clamp(takeoffAltitude, 1.0f, 100.0f);
             persistMissionParameters(missionParameters);
         }
 
         float flightSpeed = missionParameters.payload.flightSpeedMS;
-        if (ImGui::InputFloat("Flight speed (m/s)", &flightSpeed, 0.1f, 0.5f, "%.1f"))
+        ImGui::SetNextItemWidth(renderingSystem.getContentScale() * 160);
+        if (ImGui::InputFloat("Скорость", &flightSpeed, 0.1f, 0.5f, "%.1f")) //добавить tooltip  - скорость полёта m/s
         {
             missionParameters.payload.flightSpeedMS = std::clamp(flightSpeed, 0.5f, 20.0f);
             persistMissionParameters(missionParameters);
         }
 
-        // EXTENSION POINT: add new mission parameter widgets here.
-        // EXAMPLE: InputFloat("Max range (m)", &missionParameters.payload.maxRangeM);
-
         int flightModeIndex = missionParameters.flightMode == protocol::FlightMode::AUTOMATIC ? 0 : 1;
-        const char *flightModes[] = {"Automatic", "Semi-automatic"};
-        if (ImGui::Combo("Flight mode", &flightModeIndex, flightModes, IM_ARRAYSIZE(flightModes)))
+        const char *flightModes[] = {"Авто", "Полуавто"};
+        ImGui::SetNextItemWidth(renderingSystem.getContentScale() * 160);
+        if (ImGui::Combo("Режим", &flightModeIndex, flightModes, IM_ARRAYSIZE(flightModes)))
         {
-            missionParameters.flightMode =
-                flightModeIndex == 0 ? protocol::FlightMode::AUTOMATIC : protocol::FlightMode::SEMI_AUTOMATIC;
+            missionParameters.flightMode = flightModeIndex == 0 ? protocol::FlightMode::AUTOMATIC : protocol::FlightMode::SEMI_AUTOMATIC;
             persistMissionParameters(missionParameters);
             protocolClient.sendMode(missionParameters.flightMode);
         }
 
-        if (ImGui::Button("Send parameters"))
+        if (renderIconButton(renderingSystem.getMaterialIconsFont(),  ICON_MS_SEND, CommandButtonState::Idle, true, renderingSystem.getContentScale() * 52.0f))
         {
             protocolClient.sendMissionParameters(missionParameters);
         }
+
         ImGui::SameLine();
-        if (ImGui::Button("Save to file"))
+
+        if (renderIconButton(renderingSystem.getMaterialIconsFont(),  ICON_MS_SAVE, CommandButtonState::Idle, true, renderingSystem.getContentScale() * 52.0f))//tooltip - сохранить в файл
         {
             std::string errorMessage;
             if (config::saveMissionParameters(applicationPaths.missionParametersFile, missionParameters, errorMessage))
@@ -465,8 +638,10 @@ namespace gcs
                                     "Save failed: " + errorMessage);
             }
         }
+
         ImGui::SameLine();
-        if (ImGui::Button("Load from file"))
+
+        if (renderIconButton(renderingSystem.getMaterialIconsFont(),  ICON_MS_UPLOAD_FILE, CommandButtonState::Idle, true, 52.0f))//tooltip - загрузка из файла
         {
             SharedState::MissionParametersModel loadedMissionParameters = missionParameters;
             std::string errorMessage;
@@ -492,30 +667,41 @@ namespace gcs
 
     void UISystem::renderTelemetryPanel(const SharedState::Snapshot &snapshot) const
     {
-        ImGui::Begin("Telemetry");
+        ImGui::Begin("Телеметрия");
 
-        const auto droneState = static_cast<protocol::DroneState>(snapshot.telemetryState.currentState);
+        const auto droneState = snapshot.telemetryState.currentState;
         const ImVec4 indicatorColor = stateColor(droneState);
 
         renderStatusIndicator(protocol::droneStateToString(droneState), indicatorColor, renderingSystem.getBoldFont());
 
-        ImGui::Text("Mode: %s",
-                    protocol::flightModeToString(static_cast<protocol::FlightMode>(snapshot.telemetryState.flightMode)));
+        ImGui::Text("Mode: %s", protocol::flightModeToString(snapshot.telemetryState.flightMode));
         ImGui::Separator();
 
-        ImGui::Text("Position X: %.2f m", snapshot.telemetryPosition.posX);
-        ImGui::Text("Position Y: %.2f m", snapshot.telemetryPosition.posY);
-        ImGui::Text("Position Z: %.2f m", snapshot.telemetryPosition.posZ);
+        if  (ImGui::BeginChild("#Position", ImVec2(0, 0), ImGuiChildFlags_AutoResizeY | ImGuiChildFlags_AutoResizeX))
+        {
+            ImGui::Text("X: %.2f m", snapshot.telemetryPosition.posX);
+            ImGui::Text("Y: %.2f m", snapshot.telemetryPosition.posY);
+            ImGui::Text("Z: %.2f m", snapshot.telemetryPosition.posZ);
+        }
+        ImGui::EndChild();
+
+        ImGui::SameLine();
+
+        if (ImGui::BeginChild("#Velocity", ImVec2(0, 0), ImGuiChildFlags_AutoResizeY | ImGuiChildFlags_AutoResizeX))
+        {
+            ImGui::Text("V_X: %.2f m/s", snapshot.telemetryPosition.velX);
+            ImGui::Text("V_Y: %.2f m/s", snapshot.telemetryPosition.velY);
+            ImGui::Text("V_Z: %.2f m/s", snapshot.telemetryPosition.velZ);
+        }
+        ImGui::EndChild();
+
+        
         ImGui::Separator();
-        ImGui::Text("Velocity X: %.2f m/s", snapshot.telemetryPosition.velX);
-        ImGui::Text("Velocity Y: %.2f m/s", snapshot.telemetryPosition.velY);
-        ImGui::Text("Velocity Z: %.2f m/s", snapshot.telemetryPosition.velZ);
-        ImGui::Separator();
-        ImGui::Text("Altitude AGL: %.2f m", snapshot.telemetryPosition.altitudeAglM);
-        ImGui::Text("Heading: %.1f deg", snapshot.telemetryPosition.headingDeg);
+        ImGui::Text("Высота AGL: %.2f m", snapshot.telemetryPosition.altitudeAglM);
+        ImGui::Text("Курс: %.1f deg", snapshot.telemetryPosition.headingDeg);
 
         ImGui::Separator();
-        ImGui::Text("Battery");
+        ImGui::Text("Батарея");
         ImGui::PushStyleColor(ImGuiCol_PlotHistogram, batteryColor(snapshot.telemetryState.batteryPercent));
         ImGui::ProgressBar(snapshot.telemetryState.batteryPercent / 100.0f,
                         ImVec2(-1.0f, 0.0f),
@@ -527,7 +713,7 @@ namespace gcs
 
     void UISystem::renderSimulationPanel(const SharedState::Snapshot &snapshot)
     {
-        ImGui::Begin("Simulation");
+        ImGui::Begin("Лидар");
 
         auto simulation = snapshot.simulation;
         bool obstaclesChanged = false;
@@ -557,7 +743,7 @@ namespace gcs
         drawCell(0, 2, simulation.obstacles.frontRight ? IM_COL32(170, 60, 60, 255) : IM_COL32(50, 55, 65, 255), "FR");
         drawCell(1, 0, simulation.obstacles.left ? IM_COL32(170, 60, 60, 255) : IM_COL32(50, 55, 65, 255), "L");
 
-        const auto verticalState = static_cast<protocol::VerticalObstacle>(simulation.obstacles.vertical);
+        const auto verticalState = simulation.obstacles.vertical;
         const char *centerLabel = "DRN";
         ImU32 centerColor = IM_COL32(70, 78, 90, 255);
         if (verticalState == protocol::VerticalObstacle::ABOVE)
@@ -607,15 +793,15 @@ namespace gcs
                 {
                     if (verticalState == protocol::VerticalObstacle::NONE)
                     {
-                        simulation.obstacles.vertical = static_cast<std::uint8_t>(protocol::VerticalObstacle::ABOVE);
+                        simulation.obstacles.vertical = protocol::VerticalObstacle::ABOVE;
                     }
                     else if (verticalState == protocol::VerticalObstacle::ABOVE)
                     {
-                        simulation.obstacles.vertical = static_cast<std::uint8_t>(protocol::VerticalObstacle::BELOW);
+                        simulation.obstacles.vertical = protocol::VerticalObstacle::BELOW;
                     }
                     else
                     {
-                        simulation.obstacles.vertical = static_cast<std::uint8_t>(protocol::VerticalObstacle::NONE);
+                        simulation.obstacles.vertical = protocol::VerticalObstacle::NONE;
                     }
                 }
                 else if (row == 1 && column == 2)
@@ -647,7 +833,7 @@ namespace gcs
         ImGui::Dummy(ImVec2(0.0f, 8.0f));
 
         bool lidarActive = simulation.lidar.lidarActive;
-        if (ImGui::Checkbox("LiDAR active", &lidarActive))
+        if (ImGui::Checkbox("LiDAR", &lidarActive))
         {
             simulation.lidar.lidarActive = lidarActive;
             sharedState.setSimulationModel(simulation);
@@ -659,26 +845,27 @@ namespace gcs
 
     void UISystem::renderLogPanel(const SharedState::Snapshot &snapshot)
     {
-        ImGui::Begin("Log");
+        ImGui::Begin("Журнал");
 
-        ImGui::Checkbox("Commands", &showCommandLogs);
+        ImGui::Checkbox("Команды", &showCommandLogs);
         ImGui::SameLine();
-        ImGui::Checkbox("Telemetry", &showTelemetryLogs);
+        ImGui::Checkbox("Телеметрия", &showTelemetryLogs);
         ImGui::SameLine();
-        ImGui::Checkbox("Errors", &showErrorLogs);
+        ImGui::Checkbox("Ошибки", &showErrorLogs);
 
         auto preferences = snapshot.uiPreferences;
         ImGui::SameLine();
-        if (ImGui::Checkbox("Auto-scroll", &preferences.autoScrollLog))
+        if (ImGui::Checkbox("Автопрокрутка", &preferences.autoScrollLog))
         {
             sharedState.setUiPreferences(preferences);
         }
 
         ImGui::SameLine();
-        if (ImGui::Button("Clear"))
+        if (renderIconButton(renderingSystem.getMaterialIconsFont(), ICON_MS_DELETE, CommandButtonState::Idle, true, 0.0f))
         {
             sharedState.clearLogs();
         }
+        tooltipIfHovered("Очистить журнал");
 
         ImGui::Separator();
         ImGui::BeginChild("LogEntries");
@@ -705,36 +892,100 @@ namespace gcs
 
     void UISystem::renderPointCloudPanel(const SharedState::Snapshot &snapshot)
     {
-        ImGui::Begin("Point Cloud");
+        ImGui::Begin("Облако точек", nullptr, ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoScrollbar);
+
+        float customSpacing = renderingSystem.getContentScale() * 100.0f;
 
         auto preferences = snapshot.uiPreferences;
+        ImGui::SetNextItemWidth(renderingSystem.getContentScale() * 160);
         if (ImGui::SliderFloat("Point size", &preferences.pointSize, 1.0f, 8.0f, "%.1f"))
         {
             sharedState.setUiPreferences(preferences);
         }
 
+        ImGui::SameLine(0.0f, customSpacing);
         int colorModeIndex = preferences.colorMode == SharedState::ColorMode::intensity ? 0 : 1;
-        const char *colorModes[] = {"Intensity", "Distance"};
-        if (ImGui::Combo("Color mode", &colorModeIndex, colorModes, IM_ARRAYSIZE(colorModes)))
+        const char *colorModes[] = {"Интенсивность", "Расстояние"};
+        ImGui::SetNextItemWidth(renderingSystem.getContentScale() * 160);
+        if (ImGui::Combo("Режим цвета", &colorModeIndex, colorModes, IM_ARRAYSIZE(colorModes)))
         {
             preferences.colorMode = colorModeIndex == 0 ? SharedState::ColorMode::intensity : SharedState::ColorMode::distance;
             sharedState.setUiPreferences(preferences);
         }
 
-        ImGui::SameLine();
-        if (ImGui::Button("Reset camera"))
+        ImGui::SameLine(0.0f, customSpacing);
+
+        ImGui::SetNextItemWidth(renderingSystem.getContentScale() * 160);
+        if (ImGui::Checkbox("Размер по расстоянию", &preferences.distancePointSizing))
+        {
+            sharedState.setUiPreferences(preferences);
+        }
+
+        ImGui::SameLine(0.0f, customSpacing);
+        if (renderIconButton(renderingSystem.getMaterialIconsFont(), ICON_MS_RESTART_ALT, CommandButtonState::Idle, true, ImGui::GetTextLineHeight()))
         {
             pointCloudRenderer.getCamera().reset();
         }
+        tooltipIfHovered("Сбросить камеру в начальное положение");
 
-        ImGui::Text("Frame: %u, points: %zu", snapshot.pointCloud.timestampMs, snapshot.pointCloud.points.size());
+        ImGui::SameLine(0.0f, customSpacing);
+
+        ImGui::Text("Кадры: %u, точки: %zu",
+                    snapshot.pointCloud.timestampMs,
+                    snapshot.pointCloud.points.size());
         ImGui::Separator();
 
         ImVec2 viewerSize = ImGui::GetContentRegionAvail();
         viewerSize.x = std::max(viewerSize.x, 200.0f);
         viewerSize.y = std::max(viewerSize.y, 240.0f);
 
-        pointCloudRenderer.render(snapshot.pointCloud, preferences, viewerSize);
+        viewer::SceneOverlay overlay;
+
+        // Вектор скорости дрона
+        overlay.arrows.push_back({
+            .origin    = glm::vec3(0.0f, 0.0f, 0.0f), // Позиция дрона
+            .direction = glm::vec3(snapshot.telemetryPosition.velX, snapshot.telemetryPosition.velY, snapshot.telemetryPosition.velZ) * 2.0f, // Масштабированная скорость
+            .color     = glm::vec4(1.0f, 1.0f, 0.0f, 1.0f),
+            .thickness = 3.0f,
+            .headSize  = 0.25f,
+        });
+
+        // Вектор курса
+        float headRad = glm::radians(snapshot.telemetryPosition.headingDeg);
+        overlay.arrows.push_back({
+            .origin    = glm::vec3(0.0f, 0.0f, 0.0f),
+            .direction = glm::vec3(std::sin(headRad), 0.0f, std::cos(headRad)) * 3.0f,
+            .color     = glm::vec4(0.0f, 1.0f, 1.0f, 1.0f),
+            .thickness = 2.0f,
+        });
+
+        // AABB-аппроксимация кластера точек
+        overlay.boxes.push_back({
+            .center      = glm::vec3(5.0f, 2.0f, 3.0f),
+            .halfExtents = glm::vec3(1.5f, 1.0f, 2.0f),
+            .faceColor   = glm::vec4(1.0f, 0.3f, 0.3f, 0.15f),
+            .edgeColor   = glm::vec4(1.0f, 0.4f, 0.4f, 0.9f), 
+            .edgeThickness = 2.0f,
+        });
+
+        // Зона обнаружения препятствия
+        overlay.boxes.push_back({
+            .center      = glm::vec3(-3.0f, 1.5f, 0.0f),
+            .halfExtents = glm::vec3(2.0f, 2.0f, 2.0f),
+            .faceColor   = glm::vec4(0.2f, 0.8f, 0.2f, 0.10f),
+            .edgeColor   = glm::vec4(0.3f, 0.9f, 0.3f, 0.7f),
+            .edgeThickness = 1.5f,
+        });
+
+        // Линия между двумя точками
+        overlay.lines.push_back({
+            .start     = glm::vec3(0.0f, 0.0f, 0.0f),
+            .end       = glm::vec3(5.0f, 2.0f, 3.0f),
+            .color     = glm::vec4(0.5f, 0.5f, 1.0f, 0.6f),
+            .thickness = 1.0f,
+        });
+
+        pointCloudRenderer.render(snapshot.pointCloud, preferences, viewerSize, overlay);
         ImGui::Image(pointCloudRenderer.getTextureRef(), viewerSize, ImVec2(0.0f, 1.0f), ImVec2(1.0f, 0.0f));
 
         const bool hovered = ImGui::IsItemHovered();
@@ -743,7 +994,7 @@ namespace gcs
         const ImVec2 imageMin = ImGui::GetItemRectMin();
         pointCloudRenderer.drawAxisOverlay(ImGui::GetWindowDrawList(), ImVec2(imageMin.x + 32.0f, imageMin.y + 36.0f), 20.0f);
 
-        ImGui::TextDisabled("LMB: orbit  |  MMB: pan  |  Wheel: zoom");
+        ImGui::TextDisabled("ЛКМ: вращение  |  СКМ: перемещение  |  Колесо: зум");
         ImGui::End();
     }
     
@@ -775,71 +1026,6 @@ namespace gcs
     void UISystem::persistMissionParameters(const SharedState::MissionParametersModel &missionParameters) const
     {
         sharedState.setMissionParameters(missionParameters);
-    }
-
-    const char *UISystem::commandButtonLabel(protocol::CommandId commandId, bool isPaused)
-    {
-        switch (commandId)
-        {
-        case protocol::CommandId::PREPARE:
-            return "Prepare";
-        case protocol::CommandId::TAKEOFF:
-            return "Takeoff";
-        case protocol::CommandId::START_MISSION:
-            return "Start mission";
-        case protocol::CommandId::PAUSE_RESUME:
-            return isPaused ? "Resume" : "Pause";
-        case protocol::CommandId::RETURN_HOME:
-            return "Return home";
-        case protocol::CommandId::LAND:
-            return "Land";
-        case protocol::CommandId::EMERGENCY_STOP:
-            return "Emergency stop";
-        }
-
-        return "Command";
-    }
-
-    ImVec4 UISystem::commandButtonColor(const SharedState::CommandFeedback &feedback)
-    {
-        const auto now = std::chrono::steady_clock::now();
-        if (feedback.pending)
-        {
-            const auto elapsed = now - feedback.sentAt;
-            if (elapsed <= std::chrono::seconds(2))
-            {
-                return ImVec4(0.92f, 0.74f, 0.18f, 0.90f);
-            }
-            return ImVec4(0.85f, 0.22f, 0.22f, 0.90f);
-        }
-
-        switch (feedback.result)
-        {
-        case protocol::AckResult::SUCCESS:
-            return ImVec4(0.20f, 0.72f, 0.34f, 0.90f);
-        case protocol::AckResult::REJECTED:
-        case protocol::AckResult::INVALID_PARAM:
-        case protocol::AckResult::ERROR:
-            return ImVec4(0.85f, 0.22f, 0.22f, 0.90f);
-        }
-
-        return ImVec4(0.35f, 0.35f, 0.35f, 0.90f);
-    }
-
-    bool UISystem::isCommandFeedbackVisible(const SharedState::CommandFeedback &feedback)
-    {
-        if (!feedback.active)
-        {
-            return false;
-        }
-
-        const auto now = std::chrono::steady_clock::now();
-        if (feedback.pending)
-        {
-            return now - feedback.sentAt <= std::chrono::milliseconds(2500);
-        }
-
-        return now - feedback.updatedAt <= std::chrono::milliseconds(500);
     }
 
 }

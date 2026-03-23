@@ -8,17 +8,17 @@
 #include "viewer/PointCloudRenderer.h"
 
 #include <array>
+#include <string>
 
 namespace gcs
 {
-    enum class ButtonState
+    enum class CommandButtonState
     {
-        Off,
-        InProcess,
-        On
+        Idle,       // Нейтральное — ничего не происходит
+        Pending    // Команда отправлена, ожидание ответа
     };
 
-
+    // ImGui панели
     class UISystem
     {
     public:
@@ -33,7 +33,7 @@ namespace gcs
     private:
         void renderDockspace();
 
-        void renderConnectionPanel();
+        void renderConnectionPanel(const SharedState::Snapshot &snapshot);
         void renderCommandsPanel(const SharedState::Snapshot &snapshot);
         void renderMissionParametersPanel(const SharedState::Snapshot &snapshot);
         void renderTelemetryPanel(const SharedState::Snapshot &snapshot) const;
@@ -45,7 +45,6 @@ namespace gcs
         void persistConnectionEditor() const;
         void persistMissionParameters(const SharedState::MissionParametersModel &missionParameters) const;
 
-        static const char *commandButtonLabel(protocol::CommandId commandId, bool isPaused);
         static ImVec4 commandButtonColor(const SharedState::CommandFeedback &feedback);
         static bool isCommandFeedbackVisible(const SharedState::CommandFeedback &feedback);
 
@@ -63,6 +62,8 @@ namespace gcs
         bool showCommandLogs = true;
         bool showTelemetryLogs = true;
         bool showErrorLogs = true;
+
+        bool emergencyStopArmed = false;
     };
 
 }
