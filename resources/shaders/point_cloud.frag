@@ -13,6 +13,14 @@ vec3 heatMap(float value)
 
 void main()
 {
+    vec2 pointUv = gl_PointCoord * 2.0 - 1.0;
+    float radiusSquared = dot(pointUv, pointUv);
+    if (radiusSquared > 1.0)
+    {
+        discard;
+    }
+
+    float softness = smoothstep(1.0, 0.2, radiusSquared);
     float value = (uColorMode == 0) ? vIntensity : vDistance;
-    fragColor = vec4(heatMap(value), 1.0);
+    fragColor = vec4(heatMap(value), softness);
 }
