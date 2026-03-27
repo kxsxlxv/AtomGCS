@@ -271,6 +271,118 @@ namespace gcs
         ImGui::StyleColorsDark();
 
         ImGuiStyle &style = ImGui::GetStyle();
+
+        // Geometry — use float literals, ScaleAllSizes will handle DPI
+        style.WindowRounding   = 0.0f;
+        style.ChildRounding    = 2.0f;
+        style.FrameRounding    = 2.0f;
+        style.PopupRounding    = 2.0f;
+        style.ScrollbarRounding= 2.0f;
+        style.GrabRounding     = 2.0f;
+        style.TabRounding      = 2.0f;
+        style.ImageRounding    = 2.0f;
+
+        style.WindowPadding    = ImVec2(10, 10);
+        style.FramePadding     = ImVec2(8, 4);
+        style.ItemSpacing      = ImVec2(8, 6);
+        style.ItemInnerSpacing = ImVec2(6, 4);
+        style.WindowBorderSize = 1.0f;
+        style.FrameBorderSize  = 1.0f;
+        style.ChildBorderSize  = 1.0f;
+        style.SeparatorSize    = 1.0f;
+
+        // Palette — blue accent on dark background
+        ImVec4 *c = style.Colors;
+
+        // Core backgrounds
+        c[ImGuiCol_WindowBg]           = ImVec4(0.102f, 0.114f, 0.137f, 1.000f); // #1A1D23
+        //c[ImGuiCol_ChildBg]            = ImVec4(0.118f, 0.129f, 0.157f, 1.000f); // #1E2128
+        c[ImGuiCol_PopupBg]            = ImVec4(0.118f, 0.129f, 0.157f, 0.960f);
+
+        // Borders
+        c[ImGuiCol_Border]             = ImVec4(0.208f, 0.220f, 0.251f, 1.000f); // #353840
+        c[ImGuiCol_BorderShadow]       = ImVec4(0.000f, 0.000f, 0.000f, 0.000f);
+
+        // Frame backgrounds (inputs, sliders, etc.)
+        c[ImGuiCol_FrameBg]            = ImVec4(0.145f, 0.157f, 0.188f, 1.000f); // #252830
+        c[ImGuiCol_FrameBgHovered]     = ImVec4(0.180f, 0.192f, 0.224f, 1.000f);
+        c[ImGuiCol_FrameBgActive]      = ImVec4(0.212f, 0.224f, 0.255f, 1.000f);
+
+        // Title bar
+        c[ImGuiCol_TitleBg]            = ImVec4(0.082f, 0.094f, 0.125f, 1.000f); // #151820
+        c[ImGuiCol_TitleBgActive]      = ImVec4(0.102f, 0.114f, 0.137f, 1.000f); // #1A1D23
+        c[ImGuiCol_TitleBgCollapsed]   = ImVec4(0.082f, 0.094f, 0.125f, 0.750f);
+        c[ImGuiCol_MenuBarBg]          = ImVec4(0.102f, 0.114f, 0.137f, 1.000f);
+
+        // Scrollbar
+        c[ImGuiCol_ScrollbarBg]        = ImVec4(0.102f, 0.114f, 0.137f, 0.600f);
+        c[ImGuiCol_ScrollbarGrab]      = ImVec4(0.208f, 0.220f, 0.251f, 1.000f);
+        c[ImGuiCol_ScrollbarGrabHovered]= ImVec4(0.290f, 0.561f, 0.851f, 0.700f); // blue tint
+        c[ImGuiCol_ScrollbarGrabActive]= ImVec4(0.290f, 0.561f, 0.851f, 1.000f);
+
+        // Accent blue: #4A90D9
+        c[ImGuiCol_CheckMark]          = ImVec4(0.290f, 0.565f, 0.851f, 1.000f);
+        c[ImGuiCol_SliderGrab]         = ImVec4(0.290f, 0.565f, 0.851f, 0.800f);
+        c[ImGuiCol_SliderGrabActive]   = ImVec4(0.353f, 0.627f, 0.914f, 1.000f); // #5BA0E9
+
+        // Buttons
+        c[ImGuiCol_Button]             = ImVec4(0.208f, 0.220f, 0.251f, 1.000f);
+        c[ImGuiCol_ButtonHovered]      = ImVec4(0.290f, 0.565f, 0.851f, 0.600f);
+        c[ImGuiCol_ButtonActive]       = ImVec4(0.290f, 0.565f, 0.851f, 1.000f);
+
+        // Headers (collapsing header, tree node)
+        c[ImGuiCol_Header]             = ImVec4(0.208f, 0.220f, 0.251f, 1.000f);
+        c[ImGuiCol_HeaderHovered]      = ImVec4(0.290f, 0.565f, 0.851f, 0.400f);
+        c[ImGuiCol_HeaderActive]       = ImVec4(0.290f, 0.565f, 0.851f, 0.700f);
+
+        // Separators
+        c[ImGuiCol_Separator]          = ImVec4(0.208f, 0.220f, 0.251f, 1.000f);
+        c[ImGuiCol_SeparatorHovered]   = ImVec4(0.290f, 0.565f, 0.851f, 0.700f);
+        c[ImGuiCol_SeparatorActive]    = ImVec4(0.290f, 0.565f, 0.851f, 1.000f);
+
+        // Resize grip
+        c[ImGuiCol_ResizeGrip]         = ImVec4(0.208f, 0.220f, 0.251f, 0.500f);
+        c[ImGuiCol_ResizeGripHovered]  = ImVec4(0.290f, 0.565f, 0.851f, 0.600f);
+        c[ImGuiCol_ResizeGripActive]   = ImVec4(0.290f, 0.565f, 0.851f, 0.900f);
+
+        // Tabs
+        c[ImGuiCol_Tab]                = ImVec4(0.145f, 0.157f, 0.188f, 1.000f);
+        c[ImGuiCol_TabHovered]         = ImVec4(0.290f, 0.565f, 0.851f, 0.500f);
+        c[ImGuiCol_TabSelected]        = ImVec4(0.224f, 0.435f, 0.678f, 1.000f); // darker blue
+        c[ImGuiCol_TabSelectedOverline]= ImVec4(0.290f, 0.565f, 0.851f, 1.000f);
+        c[ImGuiCol_TabDimmed]          = ImVec4(0.102f, 0.114f, 0.137f, 1.000f);
+        c[ImGuiCol_TabDimmedSelected]  = ImVec4(0.176f, 0.353f, 0.549f, 1.000f);
+        c[ImGuiCol_TabDimmedSelectedOverline] = ImVec4(0.208f, 0.220f, 0.251f, 1.000f);
+
+        // Docking
+        c[ImGuiCol_DockingPreview]     = ImVec4(0.290f, 0.565f, 0.851f, 0.500f);
+        c[ImGuiCol_DockingEmptyBg]     = ImVec4(0.082f, 0.094f, 0.125f, 1.000f);
+
+        // Plot colors
+        c[ImGuiCol_PlotLines]          = ImVec4(0.290f, 0.565f, 0.851f, 1.000f);
+        c[ImGuiCol_PlotLinesHovered]   = ImVec4(0.353f, 0.627f, 0.914f, 1.000f);
+        c[ImGuiCol_PlotHistogram]      = ImVec4(0.290f, 0.565f, 0.851f, 1.000f);
+        c[ImGuiCol_PlotHistogramHovered]= ImVec4(0.353f, 0.627f, 0.914f, 1.000f);
+
+        // Tables
+        c[ImGuiCol_TableHeaderBg]      = ImVec4(0.145f, 0.157f, 0.188f, 1.000f);
+        c[ImGuiCol_TableBorderStrong]  = ImVec4(0.208f, 0.220f, 0.251f, 1.000f);
+        c[ImGuiCol_TableBorderLight]   = ImVec4(0.208f, 0.220f, 0.251f, 0.600f);
+        c[ImGuiCol_TableRowBg]         = ImVec4(0.000f, 0.000f, 0.000f, 0.000f);
+        c[ImGuiCol_TableRowBgAlt]      = ImVec4(1.000f, 1.000f, 1.000f, 0.020f);
+
+        // Text
+        c[ImGuiCol_Text]               = ImVec4(0.878f, 0.878f, 0.878f, 1.000f); // #E0E0E0
+        c[ImGuiCol_TextDisabled]       = ImVec4(0.439f, 0.439f, 0.439f, 1.000f); // #707070
+        c[ImGuiCol_TextSelectedBg]     = ImVec4(0.290f, 0.565f, 0.851f, 0.350f);
+        c[ImGuiCol_TextLink]           = ImVec4(0.290f, 0.565f, 0.851f, 1.000f);
+
+        // Misc
+        c[ImGuiCol_DragDropTarget]     = ImVec4(0.290f, 0.565f, 0.851f, 0.900f);
+        c[ImGuiCol_NavCursor]          = ImVec4(0.290f, 0.565f, 0.851f, 1.000f);
+        c[ImGuiCol_ModalWindowDimBg]   = ImVec4(0.000f, 0.000f, 0.000f, 0.600f);
+
+        // Scale everything for DPI
         style.ScaleAllSizes(contentScale);
 
         if ((ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_ViewportsEnable) != 0)
