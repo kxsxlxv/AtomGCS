@@ -50,6 +50,12 @@ namespace gcs::viewer
         target = glm::vec3(0.0f, 0.0f, 0.0f);
     }
 
+    void OrbitCamera::setView(float yaw, float pitch)
+    {
+        yawRadians = yaw;
+        pitchRadians = std::clamp(pitch, -1.4f, 1.4f);
+    }
+
     glm::mat4 OrbitCamera::buildViewMatrix() const
     {
         return glm::lookAt(getPosition(), target, glm::vec3(0.0f, 1.0f, 0.0f));

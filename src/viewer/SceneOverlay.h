@@ -15,14 +15,15 @@ namespace gcs::viewer
         float thickness = 2.0f; // Толщина линии в пикселях
     };
 
-    // Вектор = линия + наконечник (стрелка)
+    // Вектор = линия + 3D конус (наконечник)
     struct Arrow
     {
         glm::vec3 origin;
-        glm::vec3 direction;    // Не обязательно нормализован, длина = длина стрелки
+        glm::vec3 direction;        // Не обязательно нормализован, длина = длина стрелки
         glm::vec4 color;
-        float thickness = 2.0f;
-        float headSize = 0.3f;  // Размер наконечника относительно длины
+        float thickness = 2.0f;     // Толщина стержня в пикселях
+        float headSize = 0.3f;      // Размер наконечника относительно длины
+        int headSegments = 64;      // Сегментов в конусе (больше = плавнее)
     };
 
     struct Box

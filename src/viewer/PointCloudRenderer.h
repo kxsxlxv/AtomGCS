@@ -35,7 +35,6 @@ namespace gcs::viewer
         [[nodiscard]] ImTextureRef getTextureRef() const;
         [[nodiscard]] OrbitCamera &getCamera();
         [[nodiscard]] const OrbitCamera &getCamera() const;
-        void drawAxisOverlay(ImDrawList *drawList, const ImVec2 &origin, float length) const;
 
     private:
         struct GpuPoint

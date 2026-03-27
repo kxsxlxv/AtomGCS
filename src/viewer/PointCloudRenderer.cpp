@@ -79,7 +79,7 @@ namespace gcs::viewer
         glBindVertexArray(0);
         glBindBuffer(GL_ARRAY_BUFFER, 0);
 
-        if (!overlayRenderer.initialize()) 
+        if (!overlayRenderer.initialize(applicationPaths.resourcesDir / "shaders")) 
         {
             return false;
         }
@@ -207,35 +207,6 @@ namespace gcs::viewer
     const OrbitCamera &PointCloudRenderer::getCamera() const
     {
         return camera;
-    }
-
-    void PointCloudRenderer::drawAxisOverlay(ImDrawList *drawList, const ImVec2 &origin, float length) const
-    {
-        if (drawList == nullptr)
-        {
-            return;
-        }
-
-        const glm::vec3 cameraRight = camera.getRightVector();
-        const glm::vec3 cameraUp = camera.getUpVector();
-
-        const auto projectAxis = [&](const glm::vec3 &axis) {
-            const float x = glm::dot(axis, cameraRight);
-            const float y = glm::dot(axis, cameraUp);
-            return ImVec2(origin.x + x * length, origin.y - y * length);
-        };
-
-        const ImVec2 center = origin;
-        const ImVec2 xAxis = projectAxis(glm::vec3(1.0f, 0.0f, 0.0f));
-        const ImVec2 yAxis = projectAxis(glm::vec3(0.0f, 1.0f, 0.0f));
-        const ImVec2 zAxis = projectAxis(glm::vec3(0.0f, 0.0f, 1.0f));
-
-        drawList->AddLine(center, xAxis, IM_COL32(255, 90, 90, 255), 2.0f);
-        drawList->AddLine(center, yAxis, IM_COL32(110, 240, 110, 255), 2.0f);
-        drawList->AddLine(center, zAxis, IM_COL32(110, 170, 255, 255), 2.0f);
-        drawList->AddText(ImVec2(xAxis.x + 4.0f, xAxis.y - 8.0f), IM_COL32(255, 120, 120, 255), "X");
-        drawList->AddText(ImVec2(yAxis.x + 4.0f, yAxis.y - 8.0f), IM_COL32(120, 255, 120, 255), "Y");
-        drawList->AddText(ImVec2(zAxis.x + 4.0f, zAxis.y - 8.0f), IM_COL32(120, 180, 255, 255), "Z");
     }
 
     bool PointCloudRenderer::createShaderProgram()

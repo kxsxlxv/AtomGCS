@@ -1,4 +1,5 @@
 #include "viewer/OverlayRenderer.h"
+#include "core/PathUtils.h"
 
 #include <glad/gl.h>
 #include <glm/gtc/type_ptr.hpp>
@@ -6,24 +7,21 @@
 #include <algorithm>
 #include <cmath>
 #include <iostream>
+#include <string>
 
 namespace gcs::viewer
 {
-
-    // ═══════════════════════════════════════════
-    // Инициализация / Уничтожение
-    // ═══════════════════════════════════════════
 
     OverlayRenderer::~OverlayRenderer()
     {
         shutdown();
     }
 
-    bool OverlayRenderer::initialize()
+    bool OverlayRenderer::initialize(const std::filesystem::path& shaderDir)
     {
         if (shaderProgram != 0) return true;
 
-        if (!createShaderProgram()) return false;
+        if (!createShaderProgram(shaderDir)) return false;
 
         glGenVertexArrays(1, &vao);
         glGenBuffers(1, &vbo);
@@ -41,6 +39,11 @@ namespace gcs::viewer
         glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, sizeof(Vertex),
                              reinterpret_cast<void*>(3 * sizeof(float)));
 
+        // Нормаль: location 2
+        glEnableVertexAttribArray(2);
+        glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex),
+                             reinterpret_cast<void*>(7 * sizeof(float)));
+
         glBindVertexArray(0);
         glBindBuffer(GL_ARRAY_BUFFER, 0);
         return true;
@@ -53,35 +56,26 @@ namespace gcs::viewer
         if (shaderProgram != 0) { glDeleteProgram(shaderProgram); shaderProgram = 0; }
     }
 
-    bool OverlayRenderer::createShaderProgram()
+    bool OverlayRenderer::createShaderProgram(const std::filesystem::path& shaderDir)
     {
-        // Встроенные шейдеры (можно вынести в файлы + fallback)
-        const char* vertSrc = R"(#version 330 core
-            layout (location = 0) in vec3 inPosition;
-            layout (location = 1) in vec4 inColor;
-            uniform mat4 uMvp;
-            out vec4 vColor;
-            void main() {
-                gl_Position = uMvp * vec4(inPosition, 1.0);
-                vColor = inColor;
-            }
-        )";
+        const std::string vertSrc = readTextFile(shaderDir / "overlay.vert");
+        const std::string fragSrc = readTextFile(shaderDir / "overlay.frag");
 
-        const char* fragSrc = R"(#version 330 core
-            in vec4 vColor;
-            out vec4 fragColor;
-            void main() {
-                fragColor = vColor;
-            }
-        )";
-
-        auto compile = [](unsigned int type, const char* src) -> unsigned int {
+        auto compile = [](unsigned int type, const std::string& src) -> unsigned int {
+            const char* srcPtr = src.c_str();
             unsigned int s = glCreateShader(type);
-            glShaderSource(s, 1, &src, nullptr);
+            glShaderSource(s, 1, &srcPtr, nullptr);
             glCompileShader(s);
             int ok = GL_FALSE;
             glGetShaderiv(s, GL_COMPILE_STATUS, &ok);
-            if (ok != GL_TRUE) { glDeleteShader(s); return 0; }
+            if (ok != GL_TRUE)
+            {
+                char log[512];
+                glGetShaderInfoLog(s, sizeof(log), nullptr, log);
+                std::cerr << "Shader compile error: " << log << std::endl;
+                glDeleteShader(s);
+                return 0;
+            }
             return s;
         };
 
@@ -111,12 +105,9 @@ namespace gcs::viewer
         }
 
         uniformMvp = glGetUniformLocation(shaderProgram, "uMvp");
+        uniformNormalSign = glGetUniformLocation(shaderProgram, "uNormalSign");
         return true;
     }
-
-    // ═══════════════════════════════════════════
-    // Основной рендер
-    // ═══════════════════════════════════════════
 
     void OverlayRenderer::render(const SceneOverlay& overlay,
                                  const glm::mat4& mvp,
@@ -126,26 +117,20 @@ namespace gcs::viewer
 
         glUseProgram(shaderProgram);
         glUniformMatrix4fv(uniformMvp, 1, GL_FALSE, glm::value_ptr(mvp));
+        glUniform1f(uniformNormalSign, 1.0f);
 
-        // ── Шаг 1: Непрозрачные линии (depth write ON) ──
+        // Непрозрачные: линии, стрелки, рёбра кубов
         renderLines(overlay, mvp);
         renderArrows(overlay, mvp);
-
-        // ── Шаг 2: Рёбра кубов (depth write ON) ──
         renderBoxEdges(overlay, mvp);
 
-        // ── Шаг 3: Полупрозрачные грани кубов (depth write OFF) ──
+        // Полупрозрачные грани кубов
         renderBoxFaces(overlay, mvp, cameraPos);
 
         glUseProgram(0);
     }
 
-    // ═══════════════════════════════════════════
-    // Линии
-    // ═══════════════════════════════════════════
-
-    void OverlayRenderer::renderLines(const SceneOverlay& overlay, 
-                                       const glm::mat4& /*mvp*/)
+    void OverlayRenderer::renderLines(const SceneOverlay& overlay,  const glm::mat4& /*mvp*/)
     {
         if (overlay.lines.empty()) return;
 
@@ -154,98 +139,133 @@ namespace gcs::viewer
         {
             vertexBuffer.push_back({
                 line.start.x, line.start.y, line.start.z,
-                line.color.r, line.color.g, line.color.b, line.color.a
+                line.color.r, line.color.g, line.color.b, line.color.a,
+                0.0f, 0.0f, 0.0f
             });
             vertexBuffer.push_back({
                 line.end.x, line.end.y, line.end.z,
-                line.color.r, line.color.g, line.color.b, line.color.a
+                line.color.r, line.color.g, line.color.b, line.color.a,
+                0.0f, 0.0f, 0.0f
             });
         }
 
-        // Все линии одной толщины для простоты
         float thickness = overlay.lines.empty() ? 1.0f : overlay.lines[0].thickness;
         uploadAndDraw(vertexBuffer, GL_LINES, thickness);
     }
 
-    // ═══════════════════════════════════════════
-    // Стрелки (линия + наконечник)
-    // ═══════════════════════════════════════════
-
-    void OverlayRenderer::renderArrows(const SceneOverlay& overlay, 
-                                        const glm::mat4& /*mvp*/)
+    // Стрелки (стержень + 3D-конус)
+    void OverlayRenderer::renderArrows(const SceneOverlay& overlay, const glm::mat4& /*mvp*/)
     {
         if (overlay.arrows.empty()) return;
 
+        // Стержень — линии
         vertexBuffer.clear();
         for (const auto& arrow : overlay.arrows)
         {
-            buildArrowVertices(arrow, vertexBuffer);
+            buildArrowShaft(arrow, vertexBuffer);
         }
-
         uploadAndDraw(vertexBuffer, GL_LINES, 2.0f);
+
+        // Конус — треугольники с освещением (непрозрачный)
+        vertexBuffer.clear();
+        for (const auto& arrow : overlay.arrows)
+        {
+            buildArrowCone(arrow, vertexBuffer);
+        }
+        if (!vertexBuffer.empty())
+        {
+            glDisable(GL_BLEND);
+            glDepthMask(GL_TRUE);
+            glDisable(GL_CULL_FACE);
+            glUniform1f(uniformNormalSign, -1.0f); // Инвертировать нормали конуса
+            uploadAndDraw(vertexBuffer, GL_TRIANGLES);
+            glUniform1f(uniformNormalSign, 1.0f); // Вернуть обратно
+        }
     }
 
-    void OverlayRenderer::buildArrowVertices(const Arrow& arrow, 
-                                              std::vector<Vertex>& out)
+    void OverlayRenderer::buildArrowShaft(const Arrow& arrow, std::vector<Vertex>& out)
     {
+        float len = glm::length(arrow.direction);
+        if (len < 0.001f) return;
+
         glm::vec3 end = arrow.origin + arrow.direction;
+
+        // Стержень — от origin до основания конуса
+        float headLen = len * arrow.headSize;
+        glm::vec3 dir = arrow.direction / len;
+        glm::vec3 shaftEnd = end - dir * headLen; // Конец стержня = основание конуса
+
+        out.push_back({
+            arrow.origin.x, arrow.origin.y, arrow.origin.z,
+            arrow.color.r, arrow.color.g, arrow.color.b, arrow.color.a,
+            0.0f, 0.0f, 0.0f
+        });
+        out.push_back({
+            shaftEnd.x, shaftEnd.y, shaftEnd.z,
+            arrow.color.r, arrow.color.g, arrow.color.b, arrow.color.a,
+            0.0f, 0.0f, 0.0f
+        });
+    }
+
+    void OverlayRenderer::buildArrowCone(const Arrow& arrow, std::vector<Vertex>& out)
+    {
         float len = glm::length(arrow.direction);
         if (len < 0.001f) return;
 
         glm::vec3 dir = arrow.direction / len;
+        glm::vec3 tip = arrow.origin + arrow.direction;
 
-        // Основная линия
-        out.push_back({
-            arrow.origin.x, arrow.origin.y, arrow.origin.z,
-            arrow.color.r, arrow.color.g, arrow.color.b, arrow.color.a
-        });
-        out.push_back({
-            end.x, end.y, end.z,
-            arrow.color.r, arrow.color.g, arrow.color.b, arrow.color.a
-        });
+        float headLen = len * arrow.headSize;
+        float radius = headLen * 0.35f;
 
-        // Наконечник: два отрезка образуют "V"
-        // Находим перпендикуляр к направлению
-        glm::vec3 perp = glm::vec3(0.0f, 1.0f, 0.0f);
+        // Базовый вектор конуса
+        glm::vec3 base = tip - dir * headLen;
+
+        // Два перпендикуляра к dir для построения окружности
+        glm::vec3 perp(0.0f, 1.0f, 0.0f);
         if (std::abs(glm::dot(dir, perp)) > 0.99f)
-        {
             perp = glm::vec3(1.0f, 0.0f, 0.0f);
-        }
+
         glm::vec3 side = glm::normalize(glm::cross(dir, perp));
         glm::vec3 up = glm::normalize(glm::cross(side, dir));
 
-        float headLen = len * arrow.headSize;
-        glm::vec3 headBase = end - dir * headLen;
+        int segments = std::max(arrow.headSegments, 3);
+        const auto& c = arrow.color;
 
-        float headWidth = headLen * 0.4f;
-
-        // Четыре линии наконечника (пирамидка)
-        glm::vec3 tips[4] = {
-            headBase + side * headWidth,
-            headBase - side * headWidth,
-            headBase + up * headWidth,
-            headBase - up * headWidth,
-        };
-
-        for (const auto& tip : tips)
+        // Генерация конуса: каждый сегмент — треугольник (tip, base_i, base_{i+1})
+        for (int i = 0; i < segments; ++i)
         {
-            out.push_back({
-                end.x, end.y, end.z,
-                arrow.color.r, arrow.color.g, arrow.color.b, arrow.color.a
-            });
-            out.push_back({
-                tip.x, tip.y, tip.z,
-                arrow.color.r, arrow.color.g, arrow.color.b, arrow.color.a
-            });
+            float angle0 = 2.0f * 3.14159265358979f * static_cast<float>(i) / static_cast<float>(segments);
+            float angle1 = 2.0f * 3.14159265358979f * static_cast<float>(i + 1) / static_cast<float>(segments);
+
+            glm::vec3 p0 = base + (side * std::cos(angle0) + up * std::sin(angle0)) * radius;
+            glm::vec3 p1 = base + (side * std::cos(angle1) + up * std::sin(angle1)) * radius;
+
+            // Нормаль из векторного произведения рёбер треугольника (tip, p0, p1)
+            glm::vec3 edge1 = p0 - tip;
+            glm::vec3 edge2 = p1 - tip;
+            glm::vec3 normal = glm::normalize(glm::cross(edge1, edge2));
+
+            // Треугольник: tip, p0, p1 (нормаль наружу)
+            out.push_back({tip.x, tip.y, tip.z, c.r, c.g, c.b, c.a,
+                           normal.x, normal.y, normal.z});
+            out.push_back({p0.x, p0.y, p0.z, c.r, c.g, c.b, c.a,
+                           normal.x, normal.y, normal.z});
+            out.push_back({p1.x, p1.y, p1.z, c.r, c.g, c.b, c.a,
+                           normal.x, normal.y, normal.z});
+
+            // Нижний колпачок (нормаль = -dir, порядок p1,p0 для правильной ориентации)
+            out.push_back({base.x, base.y, base.z, c.r, c.g, c.b, c.a,
+                           -dir.x, -dir.y, -dir.z});
+            out.push_back({p1.x, p1.y, p1.z, c.r, c.g, c.b, c.a,
+                           -dir.x, -dir.y, -dir.z});
+            out.push_back({p0.x, p0.y, p0.z, c.r, c.g, c.b, c.a,
+                           -dir.x, -dir.y, -dir.z});
         }
     }
 
-    // ═══════════════════════════════════════════
     // Рёбра кубов (wireframe)
-    // ═══════════════════════════════════════════
-
-    void OverlayRenderer::renderBoxEdges(const SceneOverlay& overlay, 
-                                          const glm::mat4& /*mvp*/)
+    void OverlayRenderer::renderBoxEdges(const SceneOverlay& overlay, const glm::mat4& /*mvp*/)
     {
         if (overlay.boxes.empty()) return;
 
@@ -259,38 +279,26 @@ namespace gcs::viewer
                       overlay.boxes[0].edgeThickness);
     }
 
-    void OverlayRenderer::buildBoxEdgeVertices(const Box& box, 
-                                                std::vector<Vertex>& out)
+    void OverlayRenderer::buildBoxEdgeVertices(const Box& box, std::vector<Vertex>& out)
     {
-        //    7 ─── 6        Y
-        //   /|    /|        ↑
-        //  4 ─── 5 |        │
-        //  | 3 ──│ 2        └──→ X
-        //  |/    |/        /
-        //  0 ─── 1        Z
-
         const glm::vec3 mn = box.center - box.halfExtents;
         const glm::vec3 mx = box.center + box.halfExtents;
         const auto& c = box.edgeColor;
 
         glm::vec3 v[8] = {
-            {mn.x, mn.y, mx.z},  // 0: front-bottom-left
-            {mx.x, mn.y, mx.z},  // 1: front-bottom-right
-            {mx.x, mn.y, mn.z},  // 2: back-bottom-right
-            {mn.x, mn.y, mn.z},  // 3: back-bottom-left
-            {mn.x, mx.y, mx.z},  // 4: front-top-left
-            {mx.x, mx.y, mx.z},  // 5: front-top-right
-            {mx.x, mx.y, mn.z},  // 6: back-top-right
-            {mn.x, mx.y, mn.z},  // 7: back-top-left
+            {mn.x, mn.y, mx.z},
+            {mx.x, mn.y, mx.z},
+            {mx.x, mn.y, mn.z},
+            {mn.x, mn.y, mn.z},
+            {mn.x, mx.y, mx.z},
+            {mx.x, mx.y, mx.z},
+            {mx.x, mx.y, mn.z},
+            {mn.x, mx.y, mn.z},
         };
 
-        // 12 рёбер = 24 вершины для GL_LINES
         const int edges[][2] = {
-            // Bottom face
             {0,1}, {1,2}, {2,3}, {3,0},
-            // Top face
             {4,5}, {5,6}, {6,7}, {7,4},
-            // Vertical edges
             {0,4}, {1,5}, {2,6}, {3,7},
         };
 
@@ -298,23 +306,18 @@ namespace gcs::viewer
         {
             const auto& a = v[edge[0]];
             const auto& b = v[edge[1]];
-            out.push_back({a.x, a.y, a.z, c.r, c.g, c.b, c.a});
-            out.push_back({b.x, b.y, b.z, c.r, c.g, c.b, c.a});
+            out.push_back({a.x, a.y, a.z, c.r, c.g, c.b, c.a, 0.0f, 0.0f, 0.0f});
+            out.push_back({b.x, b.y, b.z, c.r, c.g, c.b, c.a, 0.0f, 0.0f, 0.0f});
         }
     }
 
-    // ═══════════════════════════════════════════
     // Полупрозрачные грани кубов
-    // ═══════════════════════════════════════════
-
     void OverlayRenderer::renderBoxFaces(const SceneOverlay& overlay,
                                           const glm::mat4& /*mvp*/,
                                           const glm::vec3& cameraPos)
     {
         if (overlay.boxes.empty()) return;
 
-        // ── Сортировка back-to-front ──
-        // Копируем индексы и сортируем по расстоянию до камеры
         std::vector<std::size_t> sortedIndices(overlay.boxes.size());
         for (std::size_t i = 0; i < sortedIndices.size(); ++i)
         {
@@ -326,87 +329,72 @@ namespace gcs::viewer
             {
                 float distA = glm::length(overlay.boxes[a].center - cameraPos);
                 float distB = glm::length(overlay.boxes[b].center - cameraPos);
-                return distA > distB;  // Дальние первыми
+                return distA > distB;
             });
 
-        // ── Генерация вершин в отсортированном порядке ──
         vertexBuffer.clear();
         for (std::size_t idx : sortedIndices)
         {
-            // Пропускаем полностью непрозрачные (нет смысла рисовать грани)
             if (overlay.boxes[idx].faceColor.a <= 0.001f) continue;
-
             buildBoxFaceVertices(overlay.boxes[idx], vertexBuffer);
         }
 
         if (vertexBuffer.empty()) return;
 
-        // ── Рендер с полупрозрачностью ──
         glEnable(GL_BLEND);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-        glDepthMask(GL_FALSE);  // ← Не пишем в depth buffer!
-        // Depth test остаётся ON — грани за непрозрачными объектами не рисуются
-
-        // Рисуем обе стороны граней (видно и изнутри куба)
+        glDepthMask(GL_FALSE);
         glDisable(GL_CULL_FACE);
 
         uploadAndDraw(vertexBuffer, GL_TRIANGLES);
 
-        // ── Восстановление состояния ──
         glDepthMask(GL_TRUE);
         glEnable(GL_CULL_FACE);
     }
 
-    void OverlayRenderer::buildBoxFaceVertices(const Box& box, 
-                                                std::vector<Vertex>& out)
+    void OverlayRenderer::buildBoxFaceVertices(const Box& box, std::vector<Vertex>& out)
     {
         const glm::vec3 mn = box.center - box.halfExtents;
         const glm::vec3 mx = box.center + box.halfExtents;
         const auto& c = box.faceColor;
 
         glm::vec3 v[8] = {
-            {mn.x, mn.y, mx.z},  // 0
-            {mx.x, mn.y, mx.z},  // 1
-            {mx.x, mn.y, mn.z},  // 2
-            {mn.x, mn.y, mn.z},  // 3
-            {mn.x, mx.y, mx.z},  // 4
-            {mx.x, mx.y, mx.z},  // 5
-            {mx.x, mx.y, mn.z},  // 6
-            {mn.x, mx.y, mn.z},  // 7
+            {mn.x, mn.y, mx.z},
+            {mx.x, mn.y, mx.z},
+            {mx.x, mn.y, mn.z},
+            {mn.x, mn.y, mn.z},
+            {mn.x, mx.y, mx.z},
+            {mx.x, mx.y, mx.z},
+            {mx.x, mx.y, mn.z},
+            {mn.x, mx.y, mn.z},
         };
 
-        // 6 граней × 2 треугольника × 3 вершины = 36 вершин
         const int faces[][4] = {
-            {0, 1, 5, 4},  // Front  (+Z)
-            {2, 3, 7, 6},  // Back   (-Z)
-            {1, 2, 6, 5},  // Right  (+X)
-            {3, 0, 4, 7},  // Left   (-X)
-            {4, 5, 6, 7},  // Top    (+Y)
-            {3, 2, 1, 0},  // Bottom (-Y)
+            {0, 1, 5, 4},
+            {2, 3, 7, 6},
+            {1, 2, 6, 5},
+            {3, 0, 4, 7},
+            {4, 5, 6, 7},
+            {3, 2, 1, 0},
         };
 
         for (const auto& face : faces)
         {
-            // Треугольник 1: v[0], v[1], v[2]
             const auto& a = v[face[0]];
             const auto& b = v[face[1]];
             const auto& d = v[face[2]];
-            out.push_back({a.x, a.y, a.z, c.r, c.g, c.b, c.a});
-            out.push_back({b.x, b.y, b.z, c.r, c.g, c.b, c.a});
-            out.push_back({d.x, d.y, d.z, c.r, c.g, c.b, c.a});
+            out.push_back({a.x, a.y, a.z, c.r, c.g, c.b, c.a, 0.0f, 0.0f, 0.0f});
+            out.push_back({b.x, b.y, b.z, c.r, c.g, c.b, c.a, 0.0f, 0.0f, 0.0f});
+            out.push_back({d.x, d.y, d.z, c.r, c.g, c.b, c.a, 0.0f, 0.0f, 0.0f});
 
-            // Треугольник 2: v[0], v[2], v[3]
             const auto& e = v[face[3]];
-            out.push_back({a.x, a.y, a.z, c.r, c.g, c.b, c.a});
-            out.push_back({d.x, d.y, d.z, c.r, c.g, c.b, c.a});
-            out.push_back({e.x, e.y, e.z, c.r, c.g, c.b, c.a});
+            out.push_back({a.x, a.y, a.z, c.r, c.g, c.b, c.a, 0.0f, 0.0f, 0.0f});
+            out.push_back({d.x, d.y, d.z, c.r, c.g, c.b, c.a, 0.0f, 0.0f, 0.0f});
+            out.push_back({e.x, e.y, e.z, c.r, c.g, c.b, c.a, 0.0f, 0.0f, 0.0f});
         }
     }
 
-    // ═══════════════════════════════════════════
     // Общая загрузка и отрисовка
-    // ═══════════════════════════════════════════
-
     void OverlayRenderer::uploadAndDraw(const std::vector<Vertex>& vertices,
                                          unsigned int mode,
                                          float lineWidth)

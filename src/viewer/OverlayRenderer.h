@@ -3,6 +3,7 @@
 #include "viewer/SceneOverlay.h"
 
 #include <glm/mat4x4.hpp>
+#include <filesystem>
 #include <vector>
 
 namespace gcs::viewer
@@ -17,7 +18,7 @@ namespace gcs::viewer
         OverlayRenderer(const OverlayRenderer&) = delete;
         OverlayRenderer& operator=(const OverlayRenderer&) = delete;
 
-        bool initialize();
+        bool initialize(const std::filesystem::path& shaderDir);
         void shutdown();
 
         /// Рендерит все overlay-объекты. Вызывать ПОСЛЕ рендеринга облака точек, пока FBO активен.
@@ -26,14 +27,15 @@ namespace gcs::viewer
                     const glm::vec3& cameraPos);
 
     private:
-        // GPU-вершина: позиция + цвет
+        // GPU-вершина: позиция + цвет + нормаль
         struct Vertex
         {
             float x, y, z;
             float r, g, b, a;
+            float nx, ny, nz;  // Нормаль (0,0,0) = без освещения
         };
 
-        bool createShaderProgram();
+        bool createShaderProgram(const std::filesystem::path& shaderDir);
         
         void renderLines(const SceneOverlay& overlay, const glm::mat4& mvp);
         void renderBoxEdges(const SceneOverlay& overlay, const glm::mat4& mvp);
@@ -45,7 +47,8 @@ namespace gcs::viewer
         // Генерация геометрии
         void buildBoxEdgeVertices(const Box& box, std::vector<Vertex>& out);
         void buildBoxFaceVertices(const Box& box, std::vector<Vertex>& out);
-        void buildArrowVertices(const Arrow& arrow, std::vector<Vertex>& out);
+        void buildArrowShaft(const Arrow& arrow, std::vector<Vertex>& out);
+        void buildArrowCone(const Arrow& arrow, std::vector<Vertex>& out);
 
         void uploadAndDraw(const std::vector<Vertex>& vertices, 
                           unsigned int mode,  // GL_LINES или GL_TRIANGLES
@@ -55,6 +58,7 @@ namespace gcs::viewer
         unsigned int vao = 0;
         unsigned int vbo = 0;
         int uniformMvp = -1;
+        int uniformNormalSign = -1;
 
         std::vector<Vertex> vertexBuffer;  // Переиспользуемый буфер
     };

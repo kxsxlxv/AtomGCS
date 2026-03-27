@@ -11,6 +11,7 @@
 
 #include <glm/trigonometric.hpp>
 #include "viewer/SceneOverlay.h"
+#include "viewer/CubeGizmo.h"
 
 namespace gcs
 {
@@ -114,9 +115,12 @@ namespace gcs
         pointCloudRenderer.getCamera().handleInput(hovered, viewerSize);
 
         const ImVec2 imageMin = ImGui::GetItemRectMin();
-        const float axisOffset = ImGui::GetFontSize() * 1.4f;
-        const float axisSize = ImGui::GetFontSize() * 0.8f;
-        pointCloudRenderer.drawAxisOverlay(ImGui::GetWindowDrawList(), ImVec2(imageMin.x + axisOffset, imageMin.y + axisOffset), axisSize);
+        const ImVec2 imageMax(imageMin.x + viewerSize.x, imageMin.y + viewerSize.y);
+
+        // Куб ориентации камеры
+        viewer::CubeGizmo cubeGizmo;
+        cubeGizmo.render(ImGui::GetWindowDrawList(), imageMin, imageMax,
+                        pointCloudRenderer.getCamera(), pointCloudRenderer.getCamera());
 
         // Подсказка управления — поверх изображения внизу слева
         {
@@ -128,7 +132,6 @@ namespace gcs
             const float paddingX = currentFontSize * 0.6f;
             const float paddingY = currentFontSize * 0.4f;
 
-            const ImVec2 imageMax(imageMin.x + viewerSize.x, imageMin.y + viewerSize.y);
             const char *hintText = "ЛКМ: вращение  |  СКМ: перемещение  |  Колесо: зум";
             const ImVec2 textSize = textFont->CalcTextSizeA(currentFontSize, FLT_MAX, 0.0f, hintText);
             const char *mouseIcon = ICON_MS_MOUSE;

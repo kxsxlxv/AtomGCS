@@ -15,6 +15,7 @@ namespace gcs::viewer
 
         void handleInput(bool isHovered, const ImVec2 &viewportSize);
         void reset();
+        void setView(float yaw, float pitch);
 
         [[nodiscard]] glm::mat4 buildViewMatrix() const;
         [[nodiscard]] glm::mat4 buildProjectionMatrix(float aspectRatio) const;
