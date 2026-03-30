@@ -18,10 +18,6 @@ namespace gcs::protocol
     constexpr std::size_t maxMissionPointsPerPacket =
         (static_cast<std::size_t>(std::numeric_limits<std::uint16_t>::max()) - sizeof(PayloadMissionParamsHeader)) /
         sizeof(MissionPointNed);
-    constexpr std::size_t maxPointCloudPointsPerPacket =
-        (static_cast<std::size_t>(std::numeric_limits<std::uint16_t>::max()) - sizeof(PayloadPointCloudPacketHeader)) /
-        sizeof(PointCloudPoint);
-
     /*
     Расчёт контрольной суммы CRC-8/ITU (полином 0x07)
     
@@ -98,8 +94,6 @@ namespace gcs::protocol
             return "TEL_STATE";
         case MsgType::TEL_POSITION:
             return "TEL_POSITION";
-        case MsgType::TEL_POINT_CLOUD:
-            return "TEL_POINT_CLOUD";
         case MsgType::TEL_ACK:
             return "TEL_ACK";
         }
@@ -261,53 +255,6 @@ namespace gcs::protocol
             std::memcpy(points.data(),
                         payloadBytes.data() + sizeof(PayloadMissionParamsHeader),
                         points.size() * sizeof(MissionPointNed));
-        }
-        return true;
-    }
-
-    inline std::vector<std::uint8_t> serializePointCloudPayload(const PayloadPointCloudPacketHeader &header, std::span<const PointCloudPoint> points)
-    {
-        if (points.size() != header.pointsInPacket || points.size() > maxPointCloudPointsPerPacket)
-        {
-            return {};
-        }
-
-        std::vector<std::uint8_t> payload(sizeof(PayloadPointCloudPacketHeader) + points.size() * sizeof(PointCloudPoint));
-        std::memcpy(payload.data(), &header, sizeof(PayloadPointCloudPacketHeader));
-        if (!points.empty())
-        {
-            std::memcpy(payload.data() + sizeof(PayloadPointCloudPacketHeader), points.data(), points.size() * sizeof(PointCloudPoint));
-        }
-        return payload;
-    }
-
-    inline bool parsePointCloudPayload(std::span<const std::uint8_t> payloadBytes,
-                                    PayloadPointCloudPacketHeader &header,
-                                    std::vector<PointCloudPoint> &points)
-    {
-        if (payloadBytes.size() < sizeof(PayloadPointCloudPacketHeader))
-        {
-            return false;
-        }
-
-        std::memcpy(&header, payloadBytes.data(), sizeof(PayloadPointCloudPacketHeader));
-        const std::size_t expectedSize = sizeof(PayloadPointCloudPacketHeader) +
-                                        static_cast<std::size_t>(header.pointsInPacket) * sizeof(PointCloudPoint);
-        if (payloadBytes.size() != expectedSize ||
-            header.pointsInPacket > maxPointCloudPointsPerPacket ||
-            header.packetCount == 0 ||
-            header.packetIndex >= header.packetCount ||
-            header.pointsInPacket > header.totalPoints)
-        {
-            return false;
-        }
-
-        points.resize(header.pointsInPacket);
-        if (!points.empty())
-        {
-            std::memcpy(points.data(),
-                        payloadBytes.data() + sizeof(PayloadPointCloudPacketHeader),
-                        points.size() * sizeof(PointCloudPoint));
         }
         return true;
     }

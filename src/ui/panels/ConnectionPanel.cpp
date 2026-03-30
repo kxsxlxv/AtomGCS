@@ -79,6 +79,13 @@ namespace gcs
             }
             ui::tooltipIfHovered("Порт UDP для телеметрии");
 
+            ImGui::SetNextItemWidth(inputWidth);
+            if (ImGui::InputInt("Lidar UDP", &lidarPointPortValue)) {
+                lidarPointPortValue = std::clamp(lidarPointPortValue, 1, 65535);
+                persistConnectionEditor();
+            }
+            ui::tooltipIfHovered("Порт для облака точек");
+
             if (lockFields) ImGui::EndDisabled();
         }
         ImGui::EndChild();

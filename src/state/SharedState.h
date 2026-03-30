@@ -51,6 +51,12 @@ namespace gcs
             std::uint16_t udpPort = 5761;
         };
 
+        struct LidarSettings
+        {
+            bool enabled = true;
+            std::uint16_t pointDataPort = 56301;
+        };
+
         struct MissionParametersModel
         {
             protocol::PayloadMissionParamsHeader payload{};
@@ -89,6 +95,17 @@ namespace gcs
             std::vector<protocol::PointCloudPoint> points;
         };
 
+        struct LivoxStatus
+        {
+            bool receiving = false;
+            std::uint16_t pointDataPort = 56301;
+            std::uint8_t lastFrameCounter = 0;
+            std::uint32_t lastFramePointCount = 0;
+            std::uint64_t completedFrames = 0;
+            std::uint64_t droppedFrames = 0;
+            std::chrono::steady_clock::time_point lastPacketAt{};
+        };
+
         struct CommandFeedback
         {
             bool active = false;
@@ -103,12 +120,14 @@ namespace gcs
         {
             ConnectionStatus connectionStatus = ConnectionStatus::disconnected;
             ConnectionSettings connectionSettings;
+            LidarSettings lidarSettings;
             MissionParametersModel missionParameters;
             SimulationModel simulation;
             UiPreferences uiPreferences;
             protocol::PayloadTelemetryState telemetryState{};
             protocol::PayloadTelemetryPosition telemetryPosition{};
             PointCloudFrame pointCloud;
+            LivoxStatus lidarStatus;
             std::vector<LogEntry> logs;
             std::array<CommandFeedback, 32> commandFeedbacks{};
         };
@@ -122,6 +141,9 @@ namespace gcs
 
         void setConnectionSettings(ConnectionSettings settings);
         [[nodiscard]] ConnectionSettings getConnectionSettings() const;
+
+        void setLidarSettings(LidarSettings settings);
+        [[nodiscard]] LidarSettings getLidarSettings() const;
 
         void setMissionParameters(MissionParametersModel missionParameters);
         [[nodiscard]] MissionParametersModel getMissionParameters() const;
@@ -141,6 +163,11 @@ namespace gcs
         void updatePointCloud(std::uint32_t timestampMs, std::vector<protocol::PointCloudPoint> points);
         [[nodiscard]] PointCloudFrame getPointCloud() const;
 
+        void noteLidarPacketReceived();
+        void updateLidarFrame(std::uint8_t frameCounter, std::uint32_t pointCount);
+        void incrementDroppedLidarFrame();
+        [[nodiscard]] LivoxStatus getLidarStatus() const;
+
         void appendLog(LogDirection direction, LogCategory category, std::string type, std::string description);
         void clearLogs();
         [[nodiscard]] std::vector<LogEntry> getLogs() const;
@@ -158,12 +185,14 @@ namespace gcs
         mutable std::shared_mutex mutex;
         ConnectionStatus connectionStatus = ConnectionStatus::disconnected;
         ConnectionSettings connectionSettings;
+        LidarSettings lidarSettings;
         MissionParametersModel missionParameters;
         SimulationModel simulation;
         UiPreferences uiPreferences;
         protocol::PayloadTelemetryState telemetryState{};
         protocol::PayloadTelemetryPosition telemetryPosition{};
         PointCloudFrame pointCloud;
+        LivoxStatus lidarStatus;
         std::deque<LogEntry> logs;
         std::array<CommandFeedback, commandFeedbackCapacity> commandFeedbacks{};
     };

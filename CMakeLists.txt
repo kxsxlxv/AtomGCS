@@ -13,6 +13,8 @@ find_package(Threads REQUIRED)
 
 enable_testing()
 
+set(ATOMGCS_TEST_SERVER_BIN "" CACHE FILEPATH "Path to external control module mock server binary for integration tests")
+
 # ==================== GLFW ====================
 set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
@@ -51,8 +53,6 @@ file(GLOB_RECURSE ATOMGCS_CORE_SOURCES CONFIGURE_DEPENDS
 
 list(FILTER ATOMGCS_CORE_SOURCES EXCLUDE REGEX ".*/main\\.cpp$")
 list(FILTER ATOMGCS_CORE_SOURCES EXCLUDE REGEX ".*/mock_main\\.cpp$")
-list(FILTER ATOMGCS_CORE_SOURCES EXCLUDE REGEX ".*/mavlink/.*")
-list(FILTER ATOMGCS_CORE_SOURCES EXCLUDE REGEX ".*/data/DroneData\\.h$")
 list(FILTER ATOMGCS_CORE_SOURCES EXCLUDE REGEX ".*/vc140\\.pdb$")
 list(FILTER ATOMGCS_CORE_SOURCES EXCLUDE REGEX ".*/ImGuiOpenGlBackend\\.cpp$")
 
@@ -63,6 +63,7 @@ target_include_directories(atomgcs_core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/shared
     ${CMAKE_CURRENT_SOURCE_DIR}/external
+    ${CMAKE_CURRENT_SOURCE_DIR}/Livox-SDK2-1.2.5/include
     ${CMAKE_CURRENT_SOURCE_DIR}/external/asio/include
     ${CMAKE_CURRENT_SOURCE_DIR}/external/glm
     ${CMAKE_CURRENT_SOURCE_DIR}/external/glfw/deps
@@ -102,9 +103,6 @@ endif()
 add_executable(${PROJECT_NAME} ${SOURCE_DIR}/main.cpp)
 target_link_libraries(${PROJECT_NAME} PRIVATE atomgcs_core)
 
-add_executable(mock_server ${SOURCE_DIR}/mock_main.cpp)
-target_link_libraries(mock_server PRIVATE atomgcs_core)
-
 add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
         "${CMAKE_CURRENT_SOURCE_DIR}/resources"
@@ -120,3 +118,8 @@ add_test(NAME atomgcs_smoke_tests COMMAND atomgcs_smoke_tests)
 add_executable(mock_server_integration_tests tests/MockServerIntegrationTests.cpp)
 target_link_libraries(mock_server_integration_tests PRIVATE atomgcs_core)
 add_test(NAME mock_server_integration_tests COMMAND mock_server_integration_tests)
+if(ATOMGCS_TEST_SERVER_BIN)
+    set_tests_properties(mock_server_integration_tests PROPERTIES
+        ENVIRONMENT "ATOMGCS_TEST_SERVER_BIN=${ATOMGCS_TEST_SERVER_BIN}"
+    )
+endif()

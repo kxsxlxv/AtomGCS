@@ -41,7 +41,6 @@ namespace gcs::protocol
         // МУП -> НСУ
         TEL_STATE = 0x81,
         TEL_POSITION = 0x82,
-        TEL_POINT_CLOUD = 0x83,
         TEL_ACK = 0x84,
     };
 
@@ -168,15 +167,6 @@ namespace gcs::protocol
         std::uint8_t intensity;
     };
 
-    struct PayloadPointCloudPacketHeader
-    {
-        std::uint32_t frameTimestampMs;
-        std::uint16_t packetIndex;
-        std::uint16_t packetCount;
-        std::uint16_t pointsInPacket;
-        std::uint16_t totalPoints;
-    };
-
     enum class AckResult : std::uint8_t
     {
         SUCCESS = 0x00, // Команда принята и выполняется
@@ -206,7 +196,6 @@ namespace gcs::protocol
     static_assert(sizeof(PayloadTelemetryState) == 7);
     static_assert(sizeof(PayloadTelemetryPosition) == 32);
     static_assert(sizeof(PointCloudPoint) == 13);
-    static_assert(sizeof(PayloadPointCloudPacketHeader) == 12);
     static_assert(sizeof(PayloadAck) == 67);
 
     // защита от случайного изменения структур
@@ -220,7 +209,6 @@ namespace gcs::protocol
     static_assert(std::is_trivially_copyable_v<PayloadTelemetryState>);
     static_assert(std::is_trivially_copyable_v<PayloadTelemetryPosition>);
     static_assert(std::is_trivially_copyable_v<PointCloudPoint>);
-    static_assert(std::is_trivially_copyable_v<PayloadPointCloudPacketHeader>);
     static_assert(std::is_trivially_copyable_v<PayloadAck>);
 
 } // namespace gcs::protocol

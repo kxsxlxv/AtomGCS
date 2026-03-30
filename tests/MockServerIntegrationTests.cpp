@@ -1,9 +1,11 @@
-#include "mock/MockServer.h"
 #include "network/ProtocolClient.h"
 #include "state/SharedState.h"
 
 #include <chrono>
+#include <cstdlib>
+#include <filesystem>
 #include <iostream>
+#include <sstream>
 #include <stdexcept>
 #include <thread>
 
@@ -32,27 +34,50 @@ void waitUntil(Predicate predicate, std::chrono::milliseconds timeout, const cha
 
     throw std::runtime_error(message);
 }
+
+std::string quoteCommandArgument(const std::filesystem::path &value)
+{
+    return "\"" + value.string() + "\"";
+}
 } // namespace
 
 int main()
 {
     try
     {
-        gcs::mock::MockServerConfig serverConfig;
-        serverConfig.tcpPort = 5860;
-        serverConfig.udpPort = 5861;
-        serverConfig.runtimeLimit = std::chrono::seconds(30);
+        const char *serverBinaryRaw = std::getenv("ATOMGCS_TEST_SERVER_BIN");
+        if (serverBinaryRaw == nullptr || std::string(serverBinaryRaw).empty())
+        {
+            std::cout << "Skipping integration test: ATOMGCS_TEST_SERVER_BIN is not set" << std::endl;
+            return 0;
+        }
 
-        gcs::mock::MockServer server(serverConfig);
-        std::jthread serverThread([&server]() { server.run(); });
+        const std::filesystem::path serverBinary = std::filesystem::path(serverBinaryRaw);
+        require(std::filesystem::exists(serverBinary), "configured server binary does not exist");
+
+        const std::uint16_t tcpPort = 5860;
+        const std::uint16_t udpPort = 5861;
+        std::ostringstream commandStream;
+        commandStream << quoteCommandArgument(serverBinary)
+                      << " --tcp-port " << tcpPort
+                      << " --udp-port " << udpPort
+                      << " --runtime-sec 25";
+
+        std::jthread serverThread([command = commandStream.str()]() {
+            const int exitCode = std::system(command.c_str());
+            if (exitCode != 0)
+            {
+                std::cerr << "External control module mock exited with code " << exitCode << std::endl;
+            }
+        });
 
         std::this_thread::sleep_for(std::chrono::milliseconds(250));
 
         gcs::SharedState sharedState;
         gcs::SharedState::ConnectionSettings connectionSettings;
         connectionSettings.ipAddress = "127.0.0.1";
-        connectionSettings.tcpPort = serverConfig.tcpPort;
-        connectionSettings.udpPort = serverConfig.udpPort;
+        connectionSettings.tcpPort = tcpPort;
+        connectionSettings.udpPort = udpPort;
         sharedState.setConnectionSettings(connectionSettings);
 
         gcs::network::ProtocolClient client(sharedState);
@@ -96,16 +121,8 @@ int main()
             std::chrono::seconds(3),
             "mock server did not transition to EXECUTING_MISSION");
 
-        waitUntil([&]() { return sharedState.getPointCloud().revision > 0; },
-                  std::chrono::seconds(3),
-                  "mock server did not publish point cloud");
-        const auto pointCloudRevisionBeforeLidarOff = sharedState.getPointCloud().revision;
-
         require(client.sendSimulationLidar(false), "failed to queue CMD_SIM_LIDAR off");
-        std::this_thread::sleep_for(std::chrono::milliseconds(1200));
-        const auto pointCloudRevisionAfterLidarOff = sharedState.getPointCloud().revision;
-        require(pointCloudRevisionAfterLidarOff >= pointCloudRevisionBeforeLidarOff,
-                "point cloud revision unexpectedly went backwards after LiDAR was disabled");
+        std::this_thread::sleep_for(std::chrono::milliseconds(300));
 
         gcs::protocol::PayloadSimObstacles obstacles{};
         obstacles.front = 1;
@@ -122,7 +139,6 @@ int main()
         require(position.altitudeAglM > 0.1f, "telemetry altitude did not update");
 
         client.disconnect();
-        server.requestStop();
         serverThread.join();
 
         std::cout << "Mock server integration test passed" << std::endl;

@@ -1,4 +1,4 @@
-#include "ui/UISystem.h"
+﻿#include "ui/UISystem.h"
 #include "ui/UiHelpers.h"
 
 #include <fonts/IconsMaterialSymbols.h>
@@ -24,6 +24,7 @@ namespace gcs
         const float controlWidth = ImGui::GetFontSize() * 8.0f;
 
         auto preferences = snapshot.uiPreferences;
+        const auto lidarStatus = snapshot.lidarStatus;
         ImGui::SetNextItemWidth(controlWidth);
         if (ImGui::SliderFloat("Размер точки", &preferences.pointSize, 1.0f, 8.0f, "%.1f"))
         {
@@ -54,13 +55,9 @@ namespace gcs
         ui::tooltipIfHovered("Сбросить камеру в начальное положение");
 
         ImGui::SameLine(0.0f, controlSpacing);
-        ImGui::PushFont(renderingSystem.getMaterialIconsFont(), ImGui::GetFontSize());
-        ImGui::TextDisabled("%s", ICON_MS_3D_ROTATION);
-        ImGui::PopFont();
-        ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x * 0.5f);
-        ImGui::TextDisabled("%u кадр  |  %zu точек",
-                    snapshot.pointCloud.timestampMs,
-                    snapshot.pointCloud.points.size());
+        ImGui::TextDisabled("кадров %llu  |  потеряно %llu",
+                            static_cast<unsigned long long>(lidarStatus.completedFrames),
+                            static_cast<unsigned long long>(lidarStatus.droppedFrames));
         ImGui::Separator();
 
         ImVec2 viewerSize = ImGui::GetContentRegionAvail();

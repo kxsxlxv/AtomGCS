@@ -69,6 +69,7 @@ namespace gcs
         std::memcpy(ipAddressBuffer.data(), settings.ipAddress.data(), copyLength);
         tcpPortValue = settings.tcpPort;
         udpPortValue = settings.udpPort;
+        lidarPointPortValue = sharedState.getLidarSettings().pointDataPort;
         connectionEditorInitialized = true;
     }
 
@@ -79,6 +80,10 @@ namespace gcs
         settings.tcpPort = static_cast<std::uint16_t>(std::clamp(tcpPortValue, 1, 65535));
         settings.udpPort = static_cast<std::uint16_t>(std::clamp(udpPortValue, 1, 65535));
         sharedState.setConnectionSettings(std::move(settings));
+
+        auto lidarSettings = sharedState.getLidarSettings();
+        lidarSettings.pointDataPort = static_cast<std::uint16_t>(std::clamp(lidarPointPortValue, 1, 65535));
+        sharedState.setLidarSettings(std::move(lidarSettings));
     }
 
     void UISystem::persistMissionParameters(const SharedState::MissionParametersModel &missionParameters) const

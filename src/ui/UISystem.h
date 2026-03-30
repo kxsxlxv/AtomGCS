@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include "config/AppConfig.h"
 #include "core/PathUtils.h"
@@ -57,6 +57,7 @@ namespace gcs
         std::array<char, 64> ipAddressBuffer{};
         int tcpPortValue = 5760;
         int udpPortValue = 5761;
+        int lidarPointPortValue = 56301;
         bool connectionEditorInitialized = false;
 
         bool showCommandLogs = true;

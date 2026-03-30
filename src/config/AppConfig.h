@@ -11,6 +11,7 @@ namespace gcs::config
     struct AppConfigModel
     {
         SharedState::ConnectionSettings connectionSettings;
+        SharedState::LidarSettings lidarSettings;
         SharedState::UiPreferences uiPreferences;
     };
 

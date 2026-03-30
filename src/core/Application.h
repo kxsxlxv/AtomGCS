@@ -14,6 +14,11 @@ namespace gcs
         class ProtocolClient;
     }
 
+    namespace livox
+    {
+        class LivoxPointCloudSource;
+    }
+
     namespace viewer
     {
         class PointCloudRenderer;
@@ -40,6 +45,7 @@ namespace gcs
         SharedState sharedState;
         std::unique_ptr<RenderingSystem> renderingSystem;
         std::unique_ptr<network::ProtocolClient> protocolClient;
+        std::unique_ptr<livox::LivoxPointCloudSource> lidarPointCloudSource;
         std::unique_ptr<viewer::PointCloudRenderer> pointCloudRenderer;
         std::unique_ptr<UISystem> uiSystem;
     };

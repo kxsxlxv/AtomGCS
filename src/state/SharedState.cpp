@@ -39,12 +39,14 @@ namespace gcs
         Snapshot copy;
         copy.connectionStatus = connectionStatus;
         copy.connectionSettings = connectionSettings;
+        copy.lidarSettings = lidarSettings;
         copy.missionParameters = missionParameters;
         copy.simulation = simulation;
         copy.uiPreferences = uiPreferences;
         copy.telemetryState = telemetryState;
         copy.telemetryPosition = telemetryPosition;
         copy.pointCloud = pointCloud;
+        copy.lidarStatus = lidarStatus;
         copy.logs.assign(logs.begin(), logs.end());
         copy.commandFeedbacks = commandFeedbacks;
         return copy;
@@ -76,6 +78,19 @@ namespace gcs
     {
         std::shared_lock lock(mutex);
         return connectionSettings;
+    }
+
+    void SharedState::setLidarSettings(LidarSettings settings)
+    {
+        std::unique_lock lock(mutex);
+        lidarSettings = std::move(settings);
+        lidarStatus.pointDataPort = lidarSettings.pointDataPort;
+    }
+
+    SharedState::LidarSettings SharedState::getLidarSettings() const
+    {
+        std::shared_lock lock(mutex);
+        return lidarSettings;
     }
 
     void SharedState::setMissionParameters(MissionParametersModel newMissionParameters)
@@ -151,6 +166,35 @@ namespace gcs
     {
         std::shared_lock lock(mutex);
         return pointCloud;
+    }
+
+    void SharedState::noteLidarPacketReceived()
+    {
+        std::unique_lock lock(mutex);
+        lidarStatus.receiving = true;
+        lidarStatus.lastPacketAt = std::chrono::steady_clock::now();
+    }
+
+    void SharedState::updateLidarFrame(std::uint8_t frameCounter, std::uint32_t pointCount)
+    {
+        std::unique_lock lock(mutex);
+        lidarStatus.receiving = true;
+        lidarStatus.lastPacketAt = std::chrono::steady_clock::now();
+        lidarStatus.lastFrameCounter = frameCounter;
+        lidarStatus.lastFramePointCount = pointCount;
+        lidarStatus.completedFrames += 1;
+    }
+
+    void SharedState::incrementDroppedLidarFrame()
+    {
+        std::unique_lock lock(mutex);
+        lidarStatus.droppedFrames += 1;
+    }
+
+    SharedState::LivoxStatus SharedState::getLidarStatus() const
+    {
+        std::shared_lock lock(mutex);
+        return lidarStatus;
     }
 
     void SharedState::appendLog(LogDirection direction, LogCategory category, std::string type, std::string description)
@@ -261,4 +305,3 @@ namespace gcs
 
 
 } // namespace gcs
-

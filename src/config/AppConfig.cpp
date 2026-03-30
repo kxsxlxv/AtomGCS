@@ -17,6 +17,8 @@ AppConfigModel buildDefaultConfig()
     config.connectionSettings.ipAddress = "127.0.0.1";
     config.connectionSettings.tcpPort = 5760;
     config.connectionSettings.udpPort = 5761;
+    config.lidarSettings.enabled = true;
+    config.lidarSettings.pointDataPort = 56301;
     config.uiPreferences.pointSize = 2.0f;
     config.uiPreferences.colorMode = SharedState::ColorMode::intensity;
     config.uiPreferences.logBufferSize = 1000;
@@ -95,6 +97,13 @@ bool loadAppConfig(const std::filesystem::path &filePath, AppConfigModel &config
         loaded.connectionSettings.tcpPort = connection.value("tcp_port", loaded.connectionSettings.tcpPort);
         loaded.connectionSettings.udpPort = connection.value("udp_port", loaded.connectionSettings.udpPort);
 
+        if (document.contains("livox_input"))
+        {
+            const auto &livox = document.at("livox_input");
+            loaded.lidarSettings.enabled = livox.value("enabled", loaded.lidarSettings.enabled);
+            loaded.lidarSettings.pointDataPort = livox.value("point_data_port", loaded.lidarSettings.pointDataPort);
+        }
+
         const auto &ui = document.at("ui");
         loaded.uiPreferences.pointSize = ui.value("point_size", loaded.uiPreferences.pointSize);
         loaded.uiPreferences.colorMode = colorModeFromConfigString(ui.value("color_mode", std::string("intensity")));
@@ -119,6 +128,9 @@ bool saveAppConfig(const std::filesystem::path &filePath, const AppConfigModel &
          {{"ip", config.connectionSettings.ipAddress},
           {"tcp_port", config.connectionSettings.tcpPort},
           {"udp_port", config.connectionSettings.udpPort}}},
+        {"livox_input",
+         {{"enabled", config.lidarSettings.enabled},
+          {"point_data_port", config.lidarSettings.pointDataPort}}},
         {"ui",
          {{"point_size", config.uiPreferences.pointSize},
           {"color_mode", toConfigString(config.uiPreferences.colorMode)},

@@ -1,6 +1,7 @@
 #include "core/Application.h"
 
 #include "config/AppConfig.h"
+#include "livox/LivoxPointCloudSource.h"
 #include "network/ProtocolClient.h"
 #include "ui/UISystem.h"
 #include "viewer/PointCloudRenderer.h"
@@ -75,6 +76,8 @@ namespace gcs
         }
 
         protocolClient = std::make_unique<network::ProtocolClient>(sharedState);
+        lidarPointCloudSource = std::make_unique<livox::LivoxPointCloudSource>(sharedState);
+        lidarPointCloudSource->start();
 
         uiSystem = std::make_unique<UISystem>(*renderingSystem,
                                             sharedState,
@@ -90,6 +93,10 @@ namespace gcs
         {
             protocolClient->disconnect();
         }
+        if (lidarPointCloudSource)
+        {
+            lidarPointCloudSource->stop();
+        }
 
         try 
         {
@@ -102,6 +109,7 @@ namespace gcs
 
         uiSystem.reset();
         pointCloudRenderer.reset();
+        lidarPointCloudSource.reset();
         protocolClient.reset();
 
         if (renderingSystem)
@@ -139,6 +147,7 @@ namespace gcs
         }
 
         sharedState.setConnectionSettings(appConfig.connectionSettings);
+        sharedState.setLidarSettings(appConfig.lidarSettings);
         sharedState.setUiPreferences(appConfig.uiPreferences);
 
         SharedState::MissionParametersModel missionParameters;
@@ -161,6 +170,7 @@ namespace gcs
 
         config::AppConfigModel appConfig;
         appConfig.connectionSettings = sharedState.getConnectionSettings();
+        appConfig.lidarSettings = sharedState.getLidarSettings();
         appConfig.uiPreferences = sharedState.getUiPreferences();
 
         std::string errorMessage;

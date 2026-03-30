@@ -92,30 +92,6 @@ void testMissionPayloadRoundTrip()
     require(parsedPoints[1].eastM == points[1].eastM, "Mission point value mismatch");
 }
 
-void testPointCloudPayloadRoundTrip()
-{
-    gcs::protocol::PayloadPointCloudPacketHeader header{};
-    header.frameTimestampMs = 100U;
-    header.packetIndex = 1;
-    header.packetCount = 3;
-    header.pointsInPacket = 2;
-    header.totalPoints = 6;
-
-    std::vector<gcs::protocol::PointCloudPoint> points(2);
-    points[0].x = 1.0f;
-    points[1].y = 2.0f;
-
-    const auto payload = gcs::protocol::serializePointCloudPayload(header, points);
-    require(!payload.empty(), "Point cloud payload serialization failed");
-
-    gcs::protocol::PayloadPointCloudPacketHeader parsedHeader{};
-    std::vector<gcs::protocol::PointCloudPoint> parsedPoints;
-    require(gcs::protocol::parsePointCloudPayload(payload, parsedHeader, parsedPoints),
-            "Point cloud payload parse failed");
-    require(parsedHeader.packetCount == header.packetCount, "Point cloud packet count mismatch");
-    require(parsedPoints.size() == points.size(), "Point cloud points size mismatch");
-}
-
 void testCrcMismatch()
 {
     auto packet = gcs::protocol::serializePacket(gcs::protocol::MsgType::CMD_SIM_LIDAR,
@@ -186,6 +162,8 @@ void testJsonConfigRoundTrip()
     appConfig.connectionSettings.ipAddress = "192.168.0.20";
     appConfig.connectionSettings.tcpPort = 6000;
     appConfig.connectionSettings.udpPort = 6001;
+    appConfig.lidarSettings.enabled = true;
+    appConfig.lidarSettings.pointDataPort = 56311;
     appConfig.uiPreferences.pointSize = 4.5f;
     appConfig.uiPreferences.colorMode = gcs::SharedState::ColorMode::distance;
     appConfig.uiPreferences.logBufferSize = 256;
@@ -201,6 +179,8 @@ void testJsonConfigRoundTrip()
             "App config IP mismatch");
     require(loadedAppConfig.connectionSettings.tcpPort == appConfig.connectionSettings.tcpPort,
             "App config TCP port mismatch");
+    require(loadedAppConfig.lidarSettings.pointDataPort == appConfig.lidarSettings.pointDataPort,
+            "App config Livox point port mismatch");
     require(loadedAppConfig.uiPreferences.colorMode == appConfig.uiPreferences.colorMode,
             "App config color mode mismatch");
     require(loadedAppConfig.uiPreferences.distancePointSizing == appConfig.uiPreferences.distancePointSizing,
@@ -250,7 +230,6 @@ int main()
     {
         testPayloadRoundTrips();
         testMissionPayloadRoundTrip();
-        testPointCloudPayloadRoundTrip();
         testCrcMismatch();
         testWrongVersion();
         testMagicResyncAndPartialFrames();
