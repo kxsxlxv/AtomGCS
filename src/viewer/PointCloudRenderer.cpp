@@ -21,19 +21,9 @@ namespace gcs::viewer
 
     namespace
     {
-        glm::vec3 convertNedToEnu(const protocol::PointCloudPoint &point)
+        glm::vec3 convertLivoxToViewer(const protocol::PointCloudPoint &point)
         {
-            return glm::vec3(point.y, point.x, -point.z);
-        }
-
-        glm::vec3 convertEnuToViewer(const glm::vec3 &enuPoint)
-        {
-            return glm::vec3(enuPoint.x, enuPoint.z, enuPoint.y);
-        }
-
-        glm::vec3 convertNedToViewer(const protocol::PointCloudPoint &point)
-        {
-            return convertEnuToViewer(convertNedToEnu(point));
+            return glm::vec3(point.x, point.y, point.z);
         }
     } // namespace
 
@@ -84,11 +74,17 @@ namespace gcs::viewer
             return false;
         }
 
+        if (!navGizmo.initialize(applicationPaths.resourcesDir / "shaders"))
+        {
+            return false;
+        }
+
         return true;
     }
 
     void PointCloudRenderer::shutdown()
     {
+        navGizmo.shutdown();
         overlayRenderer.shutdown();
 
         if (depthRenderbuffer != 0)
@@ -181,6 +177,31 @@ namespace gcs::viewer
             overlayRenderer.render(overlay, mvp, camera.getPosition());
         }
 
+        // Рендер навигационного гизмо
+        {
+            const float gizmoSizePx = 120.0f;
+            const float padding = 20.0f;
+            const float gizmoCenterX = static_cast<float>(framebufferWidth) - padding - gizmoSizePx * 0.5f;
+            const float gizmoCenterY = padding + gizmoSizePx * 0.5f;
+
+            int visibleMask = 0;
+            {
+                glm::vec3 forward = camera.getForwardVector();
+                glm::vec3 dirs[6] = {
+                    { 1, 0, 0 }, { -1, 0, 0 },
+                    { 0, 1, 0 }, { 0,-1, 0 },
+                    { 0, 0, 1 }, { 0, 0,-1 },
+                };
+                for (int i = 0; i < 6; ++i)
+                {
+                    if (glm::dot(dirs[i], forward) > 0.1f)
+                        visibleMask |= (1 << i);
+                }
+            }
+
+            navGizmo.render(camera, gizmoCenterX, gizmoCenterY, gizmoSizePx, framebufferWidth, framebufferHeight, visibleMask);
+        }
+
         // Resolve multisample → обычный FBO
         glBindFramebuffer(GL_READ_FRAMEBUFFER, msFramebuffer);
         glBindFramebuffer(GL_DRAW_FRAMEBUFFER, framebuffer);
@@ -207,6 +228,33 @@ namespace gcs::viewer
     const OrbitCamera &PointCloudRenderer::getCamera() const
     {
         return camera;
+    }
+
+    int PointCloudRenderer::getVisibleAxes(float gizmoCenterX, float gizmoCenterY,
+                                            float gizmoSize,
+                                            const ImVec2 &imageMin,
+                                            const ImVec2 &imageMax) const
+    {
+        int visibleMask = 0;
+
+        glm::vec3 forward = camera.getForwardVector();
+
+        glm::vec3 axisDirs[6] =
+        {
+            { 1, 0, 0 }, { -1, 0, 0 },
+            { 0, 1, 0 }, { 0,-1, 0 },
+            { 0, 0, 1 }, { 0, 0,-1 },
+        };
+
+        for (int i = 0; i < 6; ++i)
+        {
+            if (glm::dot(axisDirs[i], forward) < 0.1f)
+            {
+                visibleMask |= (1 << i);
+            }
+        }
+
+        return visibleMask;
     }
 
     bool PointCloudRenderer::createShaderProgram()
@@ -383,7 +431,7 @@ namespace gcs::viewer
 
         for (const auto &point : pointCloud.points)
         {
-            const glm::vec3 viewerPoint = convertNedToViewer(point);
+            const glm::vec3 viewerPoint = convertLivoxToViewer(point);
             maxDistance = std::max(maxDistance, glm::length(viewerPoint));
             gpuPointsBuffer.push_back(GpuPoint{
                 .x = viewerPoint.x,

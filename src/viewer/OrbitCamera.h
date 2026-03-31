@@ -16,6 +16,9 @@ namespace gcs::viewer
         void handleInput(bool isHovered, const ImVec2 &viewportSize);
         void reset();
         void setView(float yaw, float pitch);
+        void updateAnimation(float deltaTime);
+
+        void startSnapToAxis(int axisIndex);
 
         [[nodiscard]] glm::mat4 buildViewMatrix() const;
         [[nodiscard]] glm::mat4 buildProjectionMatrix(float aspectRatio) const;
@@ -27,10 +30,16 @@ namespace gcs::viewer
         [[nodiscard]] glm::vec3 getForwardVector() const;
 
     private:
-        float yawRadians = 0.8f;
-        float pitchRadians = 0.45f;
+        float yawRadians = 0.0f;
+        float pitchRadians = 0.0f;
         float distance = 35.0f;
         glm::vec3 target{0.0f, 0.0f, 0.0f};
+
+        glm::vec3 animStartForward{0.0f, 0.0f, 0.0f};
+        glm::vec3 animTargetForward{0.0f, 0.0f, 0.0f};
+        float animProgress = 1.0f;
+        float animDuration = 0.2f;
+        bool isAnimating = false;
     };
 
 }

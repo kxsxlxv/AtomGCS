@@ -11,7 +11,6 @@
 
 #include <glm/trigonometric.hpp>
 #include "viewer/SceneOverlay.h"
-#include "viewer/CubeGizmo.h"
 
 namespace gcs
 {
@@ -105,6 +104,13 @@ namespace gcs
             .thickness = 1.0f,
         });
 
+        overlay.lines.push_back({
+            .start     = glm::vec3(0.0f, 0.0f, 0.0f),
+            .end       = glm::vec3(0.0f, 0.0f, 10.0f),
+            .color     = glm::vec4(1.5f, 1.5f, 1.0f, 1.0f),
+            .thickness = 1.0f,
+        });
+
         pointCloudRenderer.render(snapshot.pointCloud, preferences, viewerSize, overlay);
         ImGui::Image(pointCloudRenderer.getTextureRef(), viewerSize, ImVec2(0.0f, 1.0f), ImVec2(1.0f, 0.0f));
 
@@ -114,12 +120,109 @@ namespace gcs
         const ImVec2 imageMin = ImGui::GetItemRectMin();
         const ImVec2 imageMax(imageMin.x + viewerSize.x, imageMin.y + viewerSize.y);
 
-        // Куб ориентации камеры
-        viewer::CubeGizmo cubeGizmo;
-        cubeGizmo.render(ImGui::GetWindowDrawList(), imageMin, imageMax,
-                        pointCloudRenderer.getCamera(), pointCloudRenderer.getCamera());
+        if (ImGui::IsItemClicked(ImGuiMouseButton_Left))
+        {
+            const ImVec2 mousePos = ImGui::GetMousePos();
+            const float gizmoSizePx = 120.0f;
+            const float padding = 20.0f;
+            const ImVec2 gizmoCenter(imageMax.x - padding - gizmoSizePx * 0.5f,
+                                      imageMax.y - padding - gizmoSizePx * 0.5f);
+            const float nodeDist = gizmoSizePx * 0.35f;
+            const float hitRadius = gizmoSizePx * 0.18f;
 
-        // Подсказка управления — поверх изображения внизу слева
+            const glm::vec3 right = pointCloudRenderer.getCamera().getRightVector();
+            const glm::vec3 up = pointCloudRenderer.getCamera().getUpVector();
+
+            struct AxisHit
+            {
+                glm::vec3 dir;
+                int index;
+            };
+
+            const AxisHit axes[] =
+            {
+                { glm::vec3( 1, 0, 0), 0 },
+                { glm::vec3(-1, 0, 0), 1 },
+                { glm::vec3( 0, 1, 0), 3 },
+                { glm::vec3( 0,-1, 0), 2 },
+                { glm::vec3( 0, 0, 1), 4 },
+                { glm::vec3( 0, 0,-1), 5 },
+            };
+
+            int closestAxis = -1;
+            float closestDist = hitRadius;
+
+            for (const auto& a : axes)
+            {
+                float sx = gizmoCenter.x + glm::dot(a.dir, right) * nodeDist;
+                float sy = gizmoCenter.y - glm::dot(a.dir, up) * nodeDist;
+
+                float dx = mousePos.x - sx;
+                float dy = mousePos.y - sy;
+                float dist = glm::sqrt(dx * dx + dy * dy);
+
+                if (dist < closestDist)
+                {
+                    closestDist = dist;
+                    closestAxis = a.index;
+                }
+            }
+
+            if (closestAxis >= 0)
+            {
+                pointCloudRenderer.getCamera().startSnapToAxis(closestAxis);
+            }
+        }
+
+        pointCloudRenderer.getCamera().updateAnimation(ImGui::GetIO().DeltaTime);
+
+        {
+            const float gizmoSizePx = 120.0f;
+            const float padding = 20.0f;
+            const ImVec2 gizmoCenter(imageMax.x - padding - gizmoSizePx * 0.5f,
+                                      imageMax.y - padding - gizmoSizePx * 0.5f);
+
+            const float nodeDist = gizmoSizePx * 0.35f;
+            const glm::vec3 right = pointCloudRenderer.getCamera().getRightVector();
+            const glm::vec3 up = pointCloudRenderer.getCamera().getUpVector();
+
+            const int visibleMask = pointCloudRenderer.getVisibleAxes(
+                gizmoCenter.x, gizmoCenter.y, gizmoSizePx, imageMin, imageMax);
+
+            struct AxisLabel
+            {
+                glm::vec3 dir;
+                const char* text;
+                int index;
+            };
+
+            const AxisLabel labels[] =
+            {
+                { glm::vec3( 1, 0, 0), "X",  0 },
+                { glm::vec3(-1, 0, 0), "-X", 1 },
+                { glm::vec3( 0, 1, 0), "Y",  2 },
+                { glm::vec3( 0,-1, 0), "-Y", 3 },
+                { glm::vec3( 0, 0, 1), "Z",  4 },
+                { glm::vec3( 0, 0,-1), "-Z", 5 },
+            };
+
+            ImDrawList* drawList = ImGui::GetWindowDrawList();
+            const ImU32 labelColor = IM_COL32(255, 255, 255, 255);
+
+            for (const auto& lbl : labels)
+            {
+                if (!(visibleMask & (1 << lbl.index)))
+                    continue;
+
+                float sx = glm::dot(lbl.dir, right);
+                float sy = glm::dot(lbl.dir, up);
+                ImVec2 pos(gizmoCenter.x + sx * nodeDist, gizmoCenter.y - sy * nodeDist);
+
+                const ImVec2 textSize = ImGui::CalcTextSize(lbl.text);
+                drawList->AddText(ImVec2(pos.x - textSize.x * 0.5f, pos.y - textSize.y * 0.5f), labelColor, lbl.text);
+            }
+        }
+
         {
             const float currentFontSize = ImGui::GetFontSize();
             ImFont *iconFont = renderingSystem.getMaterialIconsFont();

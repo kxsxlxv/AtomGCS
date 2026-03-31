@@ -2,6 +2,7 @@
 
 #include "core/PathUtils.h"
 #include "state/SharedState.h"
+#include "viewer/NavGizmo.h"
 #include "viewer/OrbitCamera.h"
 #include "viewer/OverlayRenderer.h"
 #include "viewer/SceneOverlay.h"
@@ -14,7 +15,6 @@
 namespace gcs::viewer
 {
 
-    // OpenGL рендерер облака точек
     class PointCloudRenderer
     {
     public:
@@ -33,6 +33,11 @@ namespace gcs::viewer
                     const SceneOverlay& overlay = {});
 
         [[nodiscard]] ImTextureRef getTextureRef() const;
+        [[nodiscard]] int getVisibleAxes(float gizmoCenterX, float gizmoCenterY,
+                                          float gizmoSize,
+                                          const ImVec2 &imageMin,
+                                          const ImVec2 &imageMax) const;
+
         [[nodiscard]] OrbitCamera &getCamera();
         [[nodiscard]] const OrbitCamera &getCamera() const;
 
@@ -65,6 +70,7 @@ namespace gcs::viewer
         ApplicationPaths applicationPaths;
         OrbitCamera camera;
         OverlayRenderer overlayRenderer;
+        NavGizmo navGizmo;
 
         unsigned int shaderProgram = 0;
         unsigned int vertexArray = 0;
@@ -73,10 +79,10 @@ namespace gcs::viewer
         unsigned int colorTexture = 0;
         unsigned int depthRenderbuffer = 0;
 
-        unsigned int msFramebuffer = 0; // Multisample FBO
-        unsigned int msColorTexture = 0; // GL_TEXTURE_2D_MULTISAMPLE
-        unsigned int msDepthRenderbuffer = 0; // GL_RENDERBUFFER, multisample
-        unsigned int msColorRenderbuffer = 0;  // GL_RENDERBUFFER, multisample
+        unsigned int msFramebuffer = 0;
+        unsigned int msColorTexture = 0;
+        unsigned int msDepthRenderbuffer = 0;
+        unsigned int msColorRenderbuffer = 0;
 
         int framebufferWidth = 0;
         int framebufferHeight = 0;
