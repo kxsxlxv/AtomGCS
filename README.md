@@ -61,6 +61,9 @@ sudo apt install -y \
     libxinerama-dev \
     libxrandr-dev \
     libxi-dev \
+    libwayland-dev \
+    libxkbcommon-dev \
+    xorg-dev \
     libgl-dev \
     libmesa-dev \
     libgl1-mesa-dev \

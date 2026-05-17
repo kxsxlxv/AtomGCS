@@ -416,6 +416,8 @@ namespace gcs::viewer
 
         framebufferWidth = width;
         framebufferHeight = height;
+
+        return true;
     }
 
     void PointCloudRenderer::uploadPointCloudIfNeeded(const SharedState::PointCloudFrame &pointCloud)

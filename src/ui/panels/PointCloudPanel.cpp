@@ -76,7 +76,7 @@ namespace gcs
         float headRad = glm::radians(snapshot.telemetryPosition.headingDeg);
         overlay.arrows.push_back({
             .origin    = glm::vec3(0.0f, 0.0f, 0.0f),
-            .direction = glm::vec3(std::sin(headRad), 0.0f, std::cos(headRad)) * 3.0f,
+            .direction = glm::vec3(std::cos(headRad), -std::sin(headRad), 0.0f) * 3.0f,
             .color     = glm::vec4(0.0f, 1.0f, 1.0f, 1.0f),
             .thickness = 2.0f,
         });

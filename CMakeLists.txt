@@ -63,7 +63,6 @@ target_include_directories(atomgcs_core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/shared
     ${CMAKE_CURRENT_SOURCE_DIR}/external
-    ${CMAKE_CURRENT_SOURCE_DIR}/Livox-SDK2-1.2.5/include
     ${CMAKE_CURRENT_SOURCE_DIR}/external/asio/include
     ${CMAKE_CURRENT_SOURCE_DIR}/external/glm
     ${CMAKE_CURRENT_SOURCE_DIR}/external/glfw/deps
