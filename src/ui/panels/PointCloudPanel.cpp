@@ -67,7 +67,7 @@ namespace gcs
 
         overlay.arrows.push_back({
             .origin    = glm::vec3(0.0f, 0.0f, 0.0f),
-            .direction = glm::vec3(snapshot.telemetryPosition.velX, snapshot.telemetryPosition.velY, snapshot.telemetryPosition.velZ) * 2.0f,
+            .direction = glm::vec3(snapshot.telemetryPosition.velX, snapshot.telemetryPosition.velY, -snapshot.telemetryPosition.velZ) * 2.0f,
             .color     = glm::vec4(1.0f, 1.0f, 0.0f, 1.0f),
             .thickness = 3.0f,
             .headSize  = 0.25f,
