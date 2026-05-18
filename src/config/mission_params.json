@@ -1,0 +1,11 @@
+{
+  "takeoff_altitude_m": 10.0,
+  "flight_speed_m_s": 5.0,
+  "delayed_start_time_sec": 0,
+  "flight_mode": "automatic",
+  "points_ned": [
+    { "north_m": 20.0, "east_m":  0.0, "down_m": -10.0 },
+    { "north_m": 20.0, "east_m": 20.0, "down_m": -10.0 },
+    { "north_m":  0.0, "east_m": 20.0, "down_m": -10.0 }
+  ]
+}
